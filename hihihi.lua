@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- Настройки6677
+-- Настройки
 ---------------------------------------------------------
 local Config = {
     SpeedHack = false,
@@ -17,7 +17,7 @@ local Config = {
     AutoToggleOnInteract = true
 }
 
-local wasSpeedActiveBeforeHold = false
+local isWaitingForEgg = false
 local speedBtnRef = nil
 
 ---------------------------------------------------------
@@ -39,7 +39,7 @@ local function fixCamera()
 end
 
 ---------------------------------------------------------
--- Bypass Метод: Delete Humanoid (Вернул!)
+-- Bypass Метод: Delete Humanoid
 ---------------------------------------------------------
 local function deleteHumanoidBypass()
     local char = LocalPlayer.Character
@@ -73,41 +73,28 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- Умная пауза для зажатия (E)
+-- Жесткий фикс для яйца: выключаем скорость ТОЛЬКО в момент получения
 ---------------------------------------------------------
-ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
-    if player == LocalPlayer and Config.AutoToggleOnInteract then
-        if Config.SpeedHack then
-            wasSpeedActiveBeforeHold = true
-            Config.SpeedHack = false
-            if speedBtnRef then
-                speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтая во время удержания
-            end
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+    if player == LocalPlayer and Config.AutoToggleOnInteract and not isWaitingForEgg then
+        isWaitingForEgg = true
+        local wasSpeedOn = Config.SpeedHack
+        
+        -- Вырубаем спидхак на момент выдачи яйца сервером
+        Config.SpeedHack = false
+        if speedBtnRef and wasSpeedOn then
+            speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0)
         end
-    end
-end)
 
-local function restoreSpeed()
-    if wasSpeedActiveBeforeHold then
-        Config.SpeedHack = true
-        wasSpeedActiveBeforeHold = false
-        if speedBtnRef then
+        -- Ждем 0.4 сек, пока сервер точно зафиксирует честное получение
+        task.wait(0.4)
+
+        Config.SpeedHack = wasSpeedOn
+        if speedBtnRef and wasSpeedOn then
             speedBtnRef.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
         end
-    end
-end
-
-ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
-    if player == LocalPlayer then
-        task.wait(0.05)
-        restoreSpeed()
-    end
-end)
-
-ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
-    if player == LocalPlayer then
-        task.wait(0.05)
-        restoreSpeed()
+        
+        isWaitingForEgg = false
     end
 end)
 
@@ -197,7 +184,7 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.BackgroundTransparency = 1
 CloseBtn.TextSize = 12
 CloseBtn.Parent = Main
-CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+CloseBtn.MouseButton1Click:Connect(function$() ScreenGui:Destroy() end)
 
 local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
@@ -273,6 +260,6 @@ CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
     end
 end)
 
-CreateButton("Auto Hold-Pause (Smart)", 190, Config.AutoToggleOnInteract, function(st)
+CreateButton("Auto-Pause On Trigger", 190, Config.AutoToggleOnInteract, function(st)
     Config.AutoToggleOnInteract = st
 end)
