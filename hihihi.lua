@@ -11,13 +11,10 @@ local Camera = workspace.CurrentCamera
 ---------------------------------------------------------
 local Config = {
     SpeedHack = false,
-    SpeedValue = 120, -- Рекомендуется не ставить больше 100-150 для ивентов
-    SafeDelivery = true,
-    MinDeliveryTime = 4.5 -- Минимальное время (в сек) между взятием и сдачей
+    SpeedValue = 500,
+    DesyncBypass = false,
+    AutoToggleOnInteract = true -- Авто-выключение при подборе/сдаче
 }
-
-local eggGrabTime = 0
-local isDelivering = false
 
 ---------------------------------------------------------
 -- Фикс Камеры
@@ -26,8 +23,8 @@ local function fixCamera()
     local char = LocalPlayer.Character
     if not char then return end
     
-    local hum = char:FindFirstChildOfClass("Humanoid")
     local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
 
     if hum then
         Camera.CameraSubject = hum
@@ -38,7 +35,41 @@ local function fixCamera()
 end
 
 ---------------------------------------------------------
--- Безопасный CFrame Speed
+-- Bypass Метод: Delete Humanoid
+---------------------------------------------------------
+local function deleteHumanoidBypass()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("LocalScript") and v ~= script then
+                v.Disabled = true
+                v:Destroy()
+            end
+        end
+        hum:Destroy()
+    end
+
+    task.wait(0.05)
+    fixCamera()
+end
+
+RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if not hum and root and Camera.CameraSubject ~= root then
+            Camera.CameraSubject = root
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- CFrame Speed Engine
 ---------------------------------------------------------
 RunService.Heartbeat:Connect(function(delta)
     if not Config.SpeedHack then return end
@@ -47,8 +78,16 @@ RunService.Heartbeat:Connect(function(delta)
     if not char then return end
 
     local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum then return end
+
+    if hum and Config.DesyncBypass then
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+        hum.WalkSpeed = 0
+    end
 
     local moveVector = Vector3.zero
     local camCF = Camera.CFrame
@@ -66,65 +105,52 @@ RunService.Heartbeat:Connect(function(delta)
     if moveVector.Magnitude > 0 then
         moveVector = moveVector.Unit
         root.CFrame = root.CFrame + (moveVector * (Config.SpeedValue * delta))
+        root.AssemblyLinearVelocity = Vector3.zero
     end
 end)
 
 ---------------------------------------------------------
--- Безопасный триггер с учётом таймера сервера
+-- Автоматическое выключение спидхака при нажатии ProximityPrompt (E)
 ---------------------------------------------------------
-local function safeInteract(prompt)
-    if isDelivering then return end
-    isDelivering = true
+local isPausingForEgg = false
 
-    local currentTime = tick()
-    local timePassed = currentTime - eggGrabTime
-
-    -- Если с момента подбора прошло мало времени, выжидаем паузу
-    if Config.SafeDelivery and timePassed < Config.MinDeliveryTime then
-        local waitTime = Config.MinDeliveryTime - timePassed
-        task.wait(waitTime)
-    end
-
-    -- Активируем промпт
-    if fireproximityprompt then
-        fireproximityprompt(prompt)
-    else
-        prompt:InputHoldBegin()
-        task.wait(0.05)
-        prompt:InputHoldEnd()
-    end
-
-    eggGrabTime = tick() -- Обновляем время
-    task.wait(0.5)
-    isDelivering = false
-end
-
--- Отслеживание нажатий ProximityPrompt
-workspace.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("ProximityPrompt") then
-        descendant.Triggered:Connect(function(player)
-            if player == LocalPlayer then
-                eggGrabTime = tick()
-            end
-        end)
+ProximityPromptService = game:GetService("ProximityPromptService")
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+    if player == LocalPlayer and Config.AutoToggleOnInteract and not isPausingForEgg then
+        isPausingForEgg = true
+        
+        -- Запоминаем текущее состояние
+        local wasSpeedOn = Config.SpeedHack
+        
+        -- Выключаем спидхак для проверки сервером
+        Config.SpeedHack = false
+        
+        -- Ждём 1.5 секунды, пока сервер обработает сдачу/подбор
+        task.wait(1.5)
+        
+        -- Возвращаем спидхак обратно
+        Config.SpeedHack = wasSpeedOn
+        isPausingForEgg = false
     end
 end)
 
 ---------------------------------------------------------
--- Простой интерфейс
+-- GUI
 ---------------------------------------------------------
-if CoreGui:FindFirstChild("EggBypassGui") then
-    CoreGui.EggBypassGui:Destroy()
+if CoreGui:FindFirstChild("MiniSpeedGui") then
+    CoreGui.MiniSpeedGui:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "EggBypassGui"
+ScreenGui.Name = "MiniSpeedGui"
 ScreenGui.Parent = CoreGui
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 200, 0, 180)
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 220, 0, 270)
 Main.Position = UDim2.new(0.05, 0, 0.3, 0)
-Main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+Main.BorderSizePixel = 0
 Main.Active = true
 Main.Draggable = true
 Main.Parent = ScreenGui
@@ -134,19 +160,32 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = Main
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 30)
-Title.Text = "Safe Egg Delivery"
+Title.Size = UDim2.new(1, -30, 0, 30)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Text = "Speed Hack & Bypass"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 12
+Title.TextSize = 13
+Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.BackgroundTransparency = 1
 Title.Parent = Main
 
-local function CreateToggle(text, posY, defaultState, callback)
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+CloseBtn.Position = UDim2.new(1, -28, 0, 3)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.TextSize = 12
+CloseBtn.Parent = Main
+CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 32)
+    btn.Size = UDim2.new(1, -20, 0, 30)
     btn.Position = UDim2.new(0, 10, 0, posY)
-    btn.BackgroundColor3 = defaultState and Color3.fromRGB(60, 140, 70) or Color3.fromRGB(40, 40, 50)
+    btn.BackgroundColor3 = defaultState and Color3.fromRGB(80, 50, 200) or Color3.fromRGB(35, 35, 45)
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamMedium
@@ -160,31 +199,62 @@ local function CreateToggle(text, posY, defaultState, callback)
     local state = defaultState
     btn.MouseButton1Click:Connect(function()
         state = not state
-        btn.BackgroundColor3 = state and Color3.fromRGB(60, 140, 70) or Color3.fromRGB(40, 40, 50)
+        btn.BackgroundColor3 = state and Color3.fromRGB(80, 50, 200) or Color3.fromRGB(35, 35, 45)
         callback(state)
     end)
+    return btn
 end
 
-CreateToggle("SpeedHack (Safe)", 40, Config.SpeedHack, function(st)
+-- Input Speed
+local SpeedBoxLabel = Instance.new("TextLabel")
+SpeedBoxLabel.Size = UDim2.new(0, 100, 0, 28)
+SpeedBoxLabel.Position = UDim2.new(0, 10, 0, 35)
+SpeedBoxLabel.Text = "Custom Speed:"
+SpeedBoxLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+SpeedBoxLabel.Font = Enum.Font.GothamMedium
+SpeedBoxLabel.TextSize = 11
+SpeedBoxLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedBoxLabel.BackgroundTransparency = 1
+SpeedBoxLabel.Parent = Main
+
+local SpeedInput = Instance.new("TextBox")
+SpeedInput.Size = UDim2.new(0, 90, 0, 28)
+SpeedInput.Position = UDim2.new(1, -100, 0, 35)
+SpeedInput.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+SpeedInput.Text = tostring(Config.SpeedValue)
+SpeedInput.TextColor3 = Color3.fromRGB(0, 255, 150)
+SpeedInput.Font = Enum.Font.GothamBold
+SpeedInput.TextSize = 12
+SpeedInput.Parent = Main
+
+local boxCorner = Instance.new("UICorner")
+boxCorner.CornerRadius = UDim.new(0, 6)
+boxCorner.Parent = SpeedInput
+
+SpeedInput.FocusLost:Connect(function()
+    local num = tonumber(SpeedInput.Text)
+    if num then
+        Config.SpeedValue = num
+    else
+        SpeedInput.Text = tostring(Config.SpeedValue)
+    end
+end)
+
+-- Buttons
+CreateButton("SpeedHack (CFrame)", 70, Config.SpeedHack, function(st)
     Config.SpeedHack = st
 end)
 
-CreateToggle("Auto Delay Bypass", 80, Config.SafeDelivery, function(st)
-    Config.SafeDelivery = st
+CreateButton("Bypass: Desync Mode", 110, Config.DesyncBypass, function(st)
+    Config.DesyncBypass = st
 end)
 
-local FixCamBtn = Instance.new("TextButton")
-FixCamBtn.Size = UDim2.new(1, -20, 0, 32)
-FixCamBtn.Position = UDim2.new(0, 10, 0, 125)
-FixCamBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 160)
-FixCamBtn.Text = "Fix Camera"
-FixCamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-FixCamBtn.Font = Enum.Font.GothamMedium
-FixCamBtn.TextSize = 11
-FixCamBtn.Parent = Main
+CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
+    if st then
+        deleteHumanoidBypass()
+    end
+end)
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 6)
-corner.Parent = FixCamBtn
-
-FixCamBtn.MouseButton1Click:Connect(fixCamera)
+CreateButton("Auto-Pause Speed on Pick/Drop", 190, Config.AutoToggleOnInteract, function(st)
+    Config.AutoToggleOnInteract = st
+end)
