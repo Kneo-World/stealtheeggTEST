@@ -13,7 +13,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --------------------------------------------------------------------------------
--- 1. CONFIGURATION & STATE MANAGEMENT6767
+-- 1. CONFIGURATION & STATE MANAGEMENT
 --------------------------------------------------------------------------------
 local Config = {
     SpeedHack = false,
@@ -105,7 +105,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 3. PROXIMITY PROMPT & INTERACTION HANDLER (SMART BYPASS FIX)
+-- 3. PROXIMITY PROMPT & INTERACTION HANDLER (GUARD BYPASS FIX)
 --------------------------------------------------------------------------------
 local InteractionModule = {}
 local interactionLock = false
@@ -120,7 +120,7 @@ function InteractionModule.Init()
                 if State.SpeedButtonReference then
                     State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0)
                 end
-                KneoLog("Пауза спидхака: удерживаем промпт (" .. State.LastTargetName .. ")")
+                KneoLog("Пауза для яйца (Guard Area): " .. State.LastTargetName)
             end
         end
     end)
@@ -129,31 +129,31 @@ function InteractionModule.Init()
         if interactionLock then return end
         interactionLock = true
         
-        -- Даем серверам игры время на обработку конца анимации яйца
-        task.wait(0.6) 
+        -- Сверхбыстрая пауза (100мс), чтобы античит стражей не успел выдать тревогу
+        task.wait(0.1) 
         
         if Config.AutoToggleOnInteract then
             Config.SpeedHack = true
             if State.SpeedButtonReference then
                 State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(90, 50, 220)
             end
-            KneoLog("Спидхак безопасно возобновлен.")
+            KneoLog("Скорость восстановлена вне зоны охраны.")
         end
         
-        task.wait(0.3)
+        task.wait(0.2)
         interactionLock = false
     end
 
     ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
         if player == LocalPlayer then
-            KneoLog("УСПЕХ (Triggered) для: " .. State.LastTargetName)
+            KneoLog("УСПЕХ (Triggered) -> Покупка/Сбор засчитан!")
             SafeRestoreSpeed()
         end
     end)
 
     ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
         if player == LocalPlayer then
-            KneoLog("СБРОС (HoldEnded): игрок отпустил кнопку рано", "WARN")
+            KneoLog("ПРЕРВАНО -> Кнопка отпущена раньше времени.", "WARN")
             SafeRestoreSpeed()
         end
     end)
