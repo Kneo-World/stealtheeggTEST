@@ -15,7 +15,7 @@ local Config = {
     SpeedValue = 500,
     DesyncBypass = false,
     AutoToggleOnInteract = true,
-    PauseDuration = 0.5 -- Пауза 1 секунда для гарантии сдачи яйца67
+    PauseDuration = 0.5 -- Пауза 1 секунда для гарантии сдачи яйца676677
 }
 
 ---------------------------------------------------------
