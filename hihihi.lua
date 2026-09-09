@@ -12,7 +12,8 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --------------------------------------------------------------------------------
--- 1. CONFIGURATION & STATE MANAGEMENT2
+-- 1. CONFIGURATION & STATE MANAGEMENT3
+
 --------------------------------------------------------------------------------
 local Config = {
     SpeedHack = false,
