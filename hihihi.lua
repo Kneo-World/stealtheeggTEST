@@ -21,15 +21,67 @@ local wasSpeedActiveBeforeHold = false
 local speedBtnRef = nil
 
 ---------------------------------------------------------
--- Умная пауза: выключаем НА ВРЕМЯ ЗАЖАТИЯ, включаем СРАЗУ ПОСЛЕ
+-- Фикс Камеры
+---------------------------------------------------------
+local function fixCamera()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
+    if hum then
+        Camera.CameraSubject = hum
+    elseif root then
+        Camera.CameraSubject = root
+    end
+    Camera.CameraType = Enum.CameraType.Custom
+end
+
+---------------------------------------------------------
+-- Bypass Метод: Delete Humanoid (Вернул!)
+---------------------------------------------------------
+local function deleteHumanoidBypass()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("LocalScript") and v ~= script then
+                v.Disabled = true
+                v:Destroy()
+            end
+        end
+        hum:Destroy()
+    end
+
+    task.wait(0.05)
+    fixCamera()
+end
+
+RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if not hum and root and Camera.CameraSubject ~= root then
+            Camera.CameraSubject = root
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- Умная пауза для зажатия (E)
 ---------------------------------------------------------
 ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
     if player == LocalPlayer and Config.AutoToggleOnInteract then
         if Config.SpeedHack then
             wasSpeedActiveBeforeHold = true
-            Config.SpeedHack = false -- Мгновенно выключаем спидхак в начале зажатия
+            Config.SpeedHack = false
             if speedBtnRef then
-                speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Желтая подсветка
+                speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтая во время удержания
             end
         end
     end
@@ -37,7 +89,7 @@ end)
 
 local function restoreSpeed()
     if wasSpeedActiveBeforeHold then
-        Config.SpeedHack = true -- Мгновенно включаем обратно
+        Config.SpeedHack = true
         wasSpeedActiveBeforeHold = false
         if speedBtnRef then
             speedBtnRef.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
@@ -45,15 +97,13 @@ local function restoreSpeed()
     end
 end
 
--- Если успешно зажал и взял/сдал яйцо
 ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
     if player == LocalPlayer then
-        task.wait(0.05) -- Микро-задержка (50мс), чтобы пакет подбора ушел на сервер
+        task.wait(0.05)
         restoreSpeed()
     end
 end)
 
--- Если отпустил клавишу раньше времени (не докутил 1 сек)
 ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
     if player == LocalPlayer then
         task.wait(0.05)
@@ -215,6 +265,12 @@ end)
 
 CreateButton("Bypass: Desync Mode", 110, Config.DesyncBypass, function(st)
     Config.DesyncBypass = st
+end)
+
+CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
+    if st then
+        deleteHumanoidBypass()
+    end
 end)
 
 CreateButton("Auto Hold-Pause (Smart)", 190, Config.AutoToggleOnInteract, function(st)
