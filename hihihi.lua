@@ -14,11 +14,12 @@ local Config = {
     SpeedValue = 1000,
     DesyncBypass = true,
     AutoGrab = false,
-    DeliveryBypass = true -- Новый фикс сдачи яиц
+    DeliveryBypass = true,
+    DeliveryDelay = 0.6 -- Задержка для обмана серверного таймера
 }
 
 ---------------------------------------------------------
--- Фикс Камеры и Перепривязка к HumanoidRootPart
+-- Фикс Камеры
 ---------------------------------------------------------
 local function fixCamera()
     local char = LocalPlayer.Character
@@ -40,7 +41,7 @@ local function fixCamera()
 end
 
 ---------------------------------------------------------
--- Bypass Метод 1: Удаление Humanoid + Фикс Камеры
+-- Bypass Метод 1: Delete Humanoid (с фиксом)
 ---------------------------------------------------------
 local function deleteHumanoidBypass()
     local char = LocalPlayer.Character
@@ -115,46 +116,42 @@ RunService.Heartbeat:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- Smart Egg Delivery Bypass (Забор и сдача яйца без возврата)
+-- Delivery Anti-AntiCheat Engine
 ---------------------------------------------------------
-local isDelivering = false
+local isInteracting = false
 
-local function processPrompt(prompt)
-    if isDelivering then return end
-    isDelivering = true
+local function triggerPromptSafe(prompt)
+    if isInteracting then return end
+    isInteracting = true
 
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then 
-        isDelivering = false
+        isInteracting = false
         return 
     end
     
     local root = char.HumanoidRootPart
-    local parentPart = prompt.Parent
 
-    if parentPart and parentPart:IsA("BasePart") then
-        -- Если активен Delivery Bypass, делаем микро-паузу фиксации координат перед взаимодействием
-        if Config.DeliveryBypass then
-            -- Сбрасываем инерцию
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-            task.wait(0.08) -- Пауза для синхронизации с сервером
-        end
-
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        else
-            prompt:InputHoldBegin()
-            task.wait(0.03)
-            prompt:InputHoldEnd()
-        end
-
-        if Config.DeliveryBypass then
-            task.wait(0.05)
-        end
+    if Config.DeliveryBypass then
+        -- Временно замираем, чтобы сбросить сетевые лаги и пройти валидацию позиции
+        local oldVelocity = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        
+        -- Выдерживаем паузу для обмана серверного таймера скоростей
+        task.wait(Config.DeliveryDelay)
     end
 
-    isDelivering = false
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+    else
+        prompt:InputHoldBegin()
+        task.wait(0.05)
+        prompt:InputHoldEnd()
+    end
+
+    task.wait(0.1)
+    isInteracting = false
 end
 
 task.spawn(function()
@@ -167,8 +164,8 @@ task.spawn(function()
                     if prompt:IsA("ProximityPrompt") and prompt.Enabled then
                         local part = prompt.Parent
                         if part and part:IsA("BasePart") then
-                            if (part.Position - rootPos).Magnitude <= 30 then
-                                processPrompt(prompt)
+                            if (part.Position - rootPos).Magnitude <= 25 then
+                                triggerPromptSafe(prompt)
                             end
                         end
                     end
@@ -203,7 +200,6 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = Main
 
--- Title
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -30, 0, 30)
 Title.Position = UDim2.new(0, 10, 0, 0)
@@ -226,7 +222,6 @@ CloseBtn.TextSize = 12
 CloseBtn.Parent = Main
 CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 
--- Helper Button Creator
 local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -20, 0, 30)
@@ -251,7 +246,7 @@ local function CreateButton(text, posY, defaultState, callback)
     return btn
 end
 
--- Поле ввода скорости (TextBox)
+-- Input Speed
 local SpeedBoxLabel = Instance.new("TextLabel")
 SpeedBoxLabel.Size = UDim2.new(0, 100, 0, 28)
 SpeedBoxLabel.Position = UDim2.new(0, 10, 0, 35)
@@ -286,22 +281,22 @@ SpeedInput.FocusLost:Connect(function()
     end
 end)
 
--- Кнопки управления
+-- Buttons
 CreateButton("SpeedHack (CFrame)", 70, Config.SpeedHack, function(st)
     Config.SpeedHack = st
 end)
 
-CreateButton("Bypass: Delete Humanoid", 110, false, function(st)
+CreateButton("Bypass: Desync Mode", 110, Config.DesyncBypass, function(st)
+    Config.DesyncBypass = st
+end)
+
+CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
     if st then
         deleteHumanoidBypass()
     end
 end)
 
-CreateButton("Bypass: Desync Mode", 150, Config.DesyncBypass, function(st)
-    Config.DesyncBypass = st
-end)
-
-CreateButton("Bypass: Egg Delivery Fix", 190, Config.DeliveryBypass, function(st)
+CreateButton("Delivery Hold Bypass", 190, Config.DeliveryBypass, function(st)
     Config.DeliveryBypass = st
 end)
 
@@ -309,11 +304,10 @@ CreateButton("Auto-Grab Eggs / Prompts", 230, Config.AutoGrab, function(st)
     Config.AutoGrab = st
 end)
 
--- Инфо-текст
 local Info = Instance.new("TextLabel")
 Info.Size = UDim2.new(1, -20, 0, 25)
 Info.Position = UDim2.new(0, 10, 0, 275)
-Info.Text = "Camera Fix Active | Egg Fix ON"
+Info.Text = "Delivery Bypass Active"
 Info.TextColor3 = Color3.fromRGB(120, 120, 140)
 Info.Font = Enum.Font.Gotham
 Info.TextSize = 10
