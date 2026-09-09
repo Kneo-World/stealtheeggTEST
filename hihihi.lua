@@ -8,26 +8,70 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- 1. Config 6767
+-- 1. Configuration & State
 ---------------------------------------------------------
 local Config = {
     SpeedHackEnabled = false,
-    SpeedValue = 700.7,
+    SpeedValue = 70.0,
+    SafeMode = true,             -- Безопасный режим для кражи яиц
+    AutoGrabEggs = false,         -- Авто-забор яиц через ProximityPrompt
+    AutoSlowNearEgg = true,       -- Снижать скорость рядом с яйцом
     BypassEnabled = false
 }
 
 ---------------------------------------------------------
--- 2. Fixed CFrame SpeedHack Logic
+-- 2. Helper Functions (Egg & Prompt Finder)
+---------------------------------------------------------
+-- Поиск ближайшего ProximityPrompt (кнопки забора яйца)
+local function getNearestPrompt()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local rootPos = character.HumanoidRootPart.Position
+
+    local closestPrompt = nil
+    local closestDistance = math.huge
+
+    for _, desc in pairs(workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local parentPart = desc.Parent
+            if parentPart and parentPart:IsA("BasePart") then
+                local dist = (parentPart.Position - rootPos).Magnitude
+                if dist < closestDistance then
+                    closestDistance = dist
+                    closestPrompt = desc
+                end
+            end
+        end
+    end
+    return closestPrompt, closestDistance
+end
+
+---------------------------------------------------------
+-- 3. CFrame SpeedHack Logic
 ---------------------------------------------------------
 RunService.RenderStepped:Connect(function(delta)
     if not Config.SpeedHackEnabled then return end
-    
+
     local character = LocalPlayer.Character
     if not character then return end
-    
+
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not rootPart then return end
+
+    -- Определение итоговой скорости
+    local currentSpeed = Config.SpeedValue
+    if Config.SafeMode and currentSpeed > 60 then
+        currentSpeed = 60 -- Ограничение безопасности для защиты от ошибки
+    end
+
+    -- Авто-замедление при приближении к яйцу (если ближе 20 studs)
+    if Config.AutoSlowNearEgg then
+        local _, dist = getNearestPrompt()
+        if dist and dist < 20 then
+            currentSpeed = math.min(currentSpeed, 25) -- Сервер успеет зарегистрировать персонажа
+        end
+    end
 
     local moveVector = Vector3.new(0, 0, 0)
     local camCFrame = Camera.CFrame
@@ -45,9 +89,8 @@ RunService.RenderStepped:Connect(function(delta)
 
     if moveVector.Magnitude > 0 then
         moveVector = moveVector.Unit
-        rootPart.CFrame = rootPart.CFrame + (moveVector * (Config.SpeedValue * delta))
-        
-        -- Сброс падения/гравитационных багов при высокой скорости
+        rootPart.CFrame = rootPart.CFrame + (moveVector * (currentSpeed * delta))
+
         if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
             rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0)
         end
@@ -55,7 +98,55 @@ RunService.RenderStepped:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- 3. UI Construction (KerryHub Premium Interface)
+-- 4. Auto Grab Proximity Prompts Loop
+---------------------------------------------------------
+task.spawn(function()
+    while task.wait(0.1) do
+        if Config.AutoGrabEggs then
+            local prompt, dist = getNearestPrompt()
+            if prompt and dist and dist <= (prompt.MaxActivationDistance or 15) then
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                else
+                    prompt:InputHoldBegin()
+                    task.wait(prompt.HoldDuration or 0.1)
+                    prompt:InputHoldEnd()
+                end
+            end
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- 5. Tween Teleport Function
+---------------------------------------------------------
+local function tweenToNearestEgg()
+    local prompt, dist = getNearestPrompt()
+    if not prompt or not prompt.Parent then return end
+
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+    local targetPart = prompt.Parent
+    local targetCFrame = targetPart.CFrame * CFrame.new(0, 2, 3)
+
+    -- Расчет времени задержки для безопасности сервера (1 секунда на каждые 100 блоков)
+    local flyTime = math.clamp(dist / 80, 0.8, 4)
+
+    local tweenInfo = TweenInfo.new(flyTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(character.HumanoidRootPart, tweenInfo, {CFrame = targetCFrame})
+    tween:Play()
+
+    tween.Completed:Connect(function()
+        task.wait(0.2)
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        end
+    end)
+end
+
+---------------------------------------------------------
+-- 6. UI Construction (KerryHub Premium)
 ---------------------------------------------------------
 if CoreGui:FindFirstChild("KerryHub_PremiumUI") then
     CoreGui.KerryHub_PremiumUI:Destroy()
@@ -66,11 +157,10 @@ ScreenGui.Name = "KerryHub_PremiumUI"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
--- Main Window
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 520, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -260, 0.5, -170)
+MainFrame.Size = UDim2.new(0, 520, 0, 380)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -190)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -101,8 +191,8 @@ Title.Parent = Header
 local SubTitle = Instance.new("TextLabel")
 SubTitle.Position = UDim2.new(0, 20, 0, 28)
 SubTitle.Size = UDim2.new(0, 200, 0, 15)
-SubTitle.Text = "PremiumInterface"
-SubTitle.TextColor3 = Color3.fromRGB(100, 102, 115)
+SubTitle.Text = "Egg Steal Fix Edition"
+SubTitle.TextColor3 = Color3.fromRGB(120, 100, 255)
 SubTitle.TextSize = 11
 SubTitle.Font = Enum.Font.Gotham
 SubTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -127,7 +217,7 @@ Sidebar.Position = UDim2.new(0, 0, 0, 50)
 Sidebar.BackgroundTransparency = 1
 Sidebar.Parent = MainFrame
 
-local function CreateTabButton(name, icon, posY, isActive)
+local function CreateTabButton(name, posY, isActive)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -20, 0, 36)
     btn.Position = UDim2.new(0, 10, 0, posY)
@@ -143,14 +233,12 @@ local function CreateTabButton(name, icon, posY, isActive)
     local bCorner = Instance.new("UICorner")
     bCorner.CornerRadius = UDim.new(0, 8)
     bCorner.Parent = btn
-
     return btn
 end
 
-local TabMovement = CreateTabButton("Movement", "", 0, true)
-local TabVisuals = CreateTabButton("Visuals", "", 42, false)
-local TabPlayer = CreateTabButton("Player", "", 84, false)
-local TabSettings = CreateTabButton("Settings", "", 126, false)
+CreateTabButton("Movement", 0, true)
+CreateTabButton("Egg Stealer", 42, false)
+CreateTabButton("Settings", 84, false)
 
 -- Content Area
 local Content = Instance.new("Frame")
@@ -160,7 +248,7 @@ Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
 ---------------------------------------------------------
--- Components Creator (Toggle & Slider)
+-- UI Components
 ---------------------------------------------------------
 local function CreateToggleCard(parent, title, subText, posY, defaultState, callback)
     local card = Instance.new("Frame")
@@ -195,7 +283,6 @@ local function CreateToggleCard(parent, title, subText, posY, defaultState, call
     sLabel.BackgroundTransparency = 1
     sLabel.Parent = card
 
-    -- Toggle Switch Outer
     local switch = Instance.new("TextButton")
     switch.Size = UDim2.new(0, 42, 0, 22)
     switch.Position = UDim2.new(1, -52, 0.5, -11)
@@ -207,7 +294,6 @@ local function CreateToggleCard(parent, title, subText, posY, defaultState, call
     swCorner.CornerRadius = UDim.new(1, 0)
     swCorner.Parent = switch
 
-    -- Toggle Circle Knob
     local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 16, 0, 16)
     knob.Position = defaultState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
@@ -264,7 +350,6 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     valLabel.BackgroundTransparency = 1
     valLabel.Parent = card
 
-    -- Slider Track
     local track = Instance.new("Frame")
     track.Size = UDim2.new(1, -24, 0, 4)
     track.Position = UDim2.new(0, 12, 0, 42)
@@ -276,7 +361,6 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     trCorner.CornerRadius = UDim.new(1, 0)
     trCorner.Parent = track
 
-    -- Active Fill
     local fill = Instance.new("Frame")
     local startRatio = (defaultVal - minVal) / (maxVal - minVal)
     fill.Size = UDim2.new(startRatio, 0, 1, 0)
@@ -288,7 +372,6 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     fCorner.CornerRadius = UDim.new(1, 0)
     fCorner.Parent = fill
 
-    -- Slider Knob
     local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 12, 0, 12)
     knob.Position = UDim2.new(1, -6, 0.5, -6)
@@ -299,14 +382,11 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     kCorner.CornerRadius = UDim.new(1, 0)
     kCorner.Parent = knob
 
-    -- Drag Logic
     local dragging = false
-
     local function UpdateInput(input)
         local posX = math.clamp(input.Position.X - track.AbsolutePosition.X, 0, track.AbsoluteSize.X)
         local ratio = posX / track.AbsoluteSize.X
         local value = minVal + (ratio * (maxVal - minVal))
-        
         fill.Size = UDim2.new(ratio, 0, 1, 0)
         valLabel.Text = string.format("%.1f", value)
         callback(value)
@@ -332,24 +412,64 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     end)
 end
 
+local function CreateButtonCard(parent, title, buttonText, posY, callback)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -10, 0, 50)
+    card.Position = UDim2.new(0, 0, 0, posY)
+    card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
+    card.Parent = parent
+
+    local cCorner = Instance.new("UICorner")
+    cCorner.CornerRadius = UDim.new(0, 8)
+    cCorner.Parent = card
+
+    local tLabel = Instance.new("TextLabel")
+    tLabel.Position = UDim2.new(0, 12, 0, 15)
+    tLabel.Size = UDim2.new(0, 200, 0, 18)
+    tLabel.Text = title
+    tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
+    tLabel.Font = Enum.Font.GothamBold
+    tLabel.TextSize = 13
+    tLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tLabel.BackgroundTransparency = 1
+    tLabel.Parent = card
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 110, 0, 28)
+    btn.Position = UDim2.new(1, -120, 0.5, -14)
+    btn.BackgroundColor3 = Color3.fromRGB(120, 80, 255)
+    btn.Text = buttonText
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
+    btn.Parent = card
+
+    local bCorner = Instance.new("UICorner")
+    bCorner.CornerRadius = UDim.new(0, 6)
+    bCorner.Parent = btn
+
+    btn.MouseButton1Click:Connect(callback)
+end
+
 ---------------------------------------------------------
--- Building Movement Tab
+-- Populating Controls
 ---------------------------------------------------------
-CreateToggleCard(Content, "CFrame SpeedHack", "Smooth teleportation speed (up to 1000)", 0, Config.SpeedHackEnabled, function(state)
+CreateToggleCard(Content, "CFrame SpeedHack", "Smooth movement speed", 0, Config.SpeedHackEnabled, function(state)
     Config.SpeedHackEnabled = state
 end)
 
-CreateSliderCard(Content, "Speed Value", 16, 1000, Config.SpeedValue, 65, function(value)
+CreateSliderCard(Content, "Speed Value", 16, 1000, Config.SpeedValue, 60, function(value)
     Config.SpeedValue = value
 end)
 
-CreateToggleCard(Content, "AntiCheat Bypass", "Removes humanoid restrictions", 140, Config.BypassEnabled, function(state)
-    Config.BypassEnabled = state
-    if state then
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then
-            Camera.CameraSubject = char:FindFirstChild("HumanoidRootPart")
-            char:FindFirstChildOfClass("Humanoid"):Destroy()
-        end
-    end
+CreateToggleCard(Content, "Auto-Slow Near Egg (Anti-Error)", "Slows down near eggs so server accepts it", 130, Config.AutoSlowNearEgg, function(state)
+    Config.AutoSlowNearEgg = state
+end)
+
+CreateToggleCard(Content, "Auto-Grab Eggs (Bypass E)", "Auto activates egg ProximityPrompts", 190, Config.AutoGrabEggs, function(state)
+    Config.AutoGrabEggs = state
+end)
+
+CreateButtonCard(Content, "Safe Tween To Nearest Egg", "Fly To Egg", 250, function()
+    tweenToNearestEgg()
 end)
