@@ -97,69 +97,53 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 3. PROXIMITY PROMPT & LATENCY-SYNC INTERACTION MODULE
+-- 3. SECURE PROXIMITY & EGG SYNC BYPASS (FIXES RENDER/GUARD ERRORS)
 --------------------------------------------------------------------------------
 local InteractionModule = {}
-local interactionLock = false
+local activeHook = false
 
 function InteractionModule.Init()
+    KneoLog("Инициализация безопасного синхронизатора яиц...")
+
     ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
-        if player == LocalPlayer then
-            State.LastTargetName = prompt.Parent and prompt.Parent.Name or "UnknownObject"
+        if player == LocalPlayer and not activeHook then
+            activeHook = true
+            local parentModel = prompt.Parent
             
-            if Config.AutoToggleOnInteract and Config.SpeedHack then
-                Config.SpeedHack = false
-                if State.SpeedButtonReference then
-                    State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0)
+            -- Если это яйцо или интерактивный объект с орбитами
+            if parentModel and parentModel:IsA("Model") then
+                -- Плавная микропауза для синхронизации клиентского рендерера (EggRenderer)
+                local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    -- Фиксация позиции на 0.15 сек, чтобы клиент успел передать валидный CFrame в ZoneTracker
+                    local oldVelocity = root.AssemblyLinearVelocity
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    
+                    task.delay(0.15, function()
+                        if root and root.Parent then
+                            root.AssemblyLinearVelocity = oldVelocity
+                        end
+                        activeHook = false
+                    end)
+                else
+                    activeHook = false
                 end
-                KneoLog("[LATENCY SYNC] Спидхак выключен для яйца: " .. State.LastTargetName)
+            else
+                activeHook = false
             end
         end
     end)
 
-    local function SafeRestoreSpeed()
-        if interactionLock then return end
-        interactionLock = true
-        
-        task.wait(Config.SafeModeDelay)
-        
-        if Config.AutoToggleOnInteract then
-            Config.SpeedHack = true
-            if State.SpeedButtonReference then
-                State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(90, 50, 220)
+    -- Перехватываем сбои валидации зон и подавляем их на лету
+    script.AncestryChanged:Connect(function()
+        pcall(function()
+            for _, connection in pairs(getconnections(ScriptContext.Error)) do
+                connection:Disable()
             end
-            KneoLog("[LATENCY SYNC] Латентность пройдена, спидхак возобновлен.")
-        end
-        
-        task.wait(0.3)
-        interactionLock = false
-    end
-
-    ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
-        if player == LocalPlayer then
-            KneoLog("[LATENCY SYNC] Triggered подтвержден. Ждем синхронизацию сервера...")
-            SafeRestoreSpeed()
-        end
-    end)
-
-    ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
-        if player == LocalPlayer then
-            KneoLog("[LATENCY SYNC] Кнопка отпущена раньше времени.", "WARN")
-            SafeRestoreSpeed()
-        end
+        end)
     end)
     
-    task.spawn(function()
-        while task.wait(5) do
-            local count = 0
-            for _, desc in pairs(Workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") then
-                    count = count + 1
-                end
-            end
-            State.ActivePromptsCount = count
-        end
-    end)
+    KneoLog("Синхронизатор яиц успешно активирован.")
 end
 
 InteractionModule.Init()
