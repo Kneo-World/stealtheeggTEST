@@ -8,21 +8,18 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- 1. Configuration & State
+-- 1. Config
 ---------------------------------------------------------
 local Config = {
-    SpeedHackEnabled = false,
-    SpeedValue = 70.0,
-    SafeMode = true,             -- Безопасный режим для кражи яиц
-    AutoGrabEggs = false,         -- Авто-забор яиц через ProximityPrompt
-    AutoSlowNearEgg = true,       -- Снижать скорость рядом с яйцом
-    BypassEnabled = false
+    SpeedHackEnabled = true,
+    SpeedValue = 1000.0, -- Твои 1000 скорости!
+    AutoGrabEggs = false,
+    InstantBypassGrab = true
 }
 
 ---------------------------------------------------------
--- 2. Helper Functions (Egg & Prompt Finder)
+-- 2. Helper Functions
 ---------------------------------------------------------
--- Поиск ближайшего ProximityPrompt (кнопки забора яйца)
 local function getNearestPrompt()
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -46,8 +43,38 @@ local function getNearestPrompt()
     return closestPrompt, closestDistance
 end
 
+-- Функция мгновенного забора яйца на скорости 1000 (Bypass)
+local function grabEggBypass(prompt)
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local root = character.HumanoidRootPart
+    local targetPart = prompt.Parent
+
+    if targetPart and targetPart:IsA("BasePart") then
+        -- 1. Сохраняем импульс и тпшим персонажа прямо в яйцо
+        local oldVelocity = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        root.CFrame = targetPart.CFrame
+
+        -- 2. Фиксируем на 1 кадр, чтобы сервер зафиксировал координаты
+        task.wait(0.05)
+
+        -- 3. Активируем забор яйца
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        else
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration or 0.05)
+            prompt:InputHoldEnd()
+        end
+
+        task.wait(0.05)
+        root.AssemblyLinearVelocity = oldVelocity
+    end
+end
+
 ---------------------------------------------------------
--- 3. CFrame SpeedHack Logic
+-- 3. Extreme Speed Engine (up to 1000)
 ---------------------------------------------------------
 RunService.RenderStepped:Connect(function(delta)
     if not Config.SpeedHackEnabled then return end
@@ -58,20 +85,6 @@ RunService.RenderStepped:Connect(function(delta)
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not rootPart then return end
-
-    -- Определение итоговой скорости
-    local currentSpeed = Config.SpeedValue
-    if Config.SafeMode and currentSpeed > 60 then
-        currentSpeed = 60 -- Ограничение безопасности для защиты от ошибки
-    end
-
-    -- Авто-замедление при приближении к яйцу (если ближе 20 studs)
-    if Config.AutoSlowNearEgg then
-        local _, dist = getNearestPrompt()
-        if dist and dist < 20 then
-            currentSpeed = math.min(currentSpeed, 25) -- Сервер успеет зарегистрировать персонажа
-        end
-    end
 
     local moveVector = Vector3.new(0, 0, 0)
     local camCFrame = Camera.CFrame
@@ -89,80 +102,45 @@ RunService.RenderStepped:Connect(function(delta)
 
     if moveVector.Magnitude > 0 then
         moveVector = moveVector.Unit
-        rootPart.CFrame = rootPart.CFrame + (moveVector * (currentSpeed * delta))
-
-        if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+        rootPart.CFrame = rootPart.CFrame + (moveVector * (Config.SpeedValue * delta))
+        
+        -- Срез инерции для предотвращения десинхронизации на 1000 спиде
+        if humanoid then
             rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0)
         end
     end
 end)
 
 ---------------------------------------------------------
--- 4. Auto Grab Proximity Prompts Loop
+-- 4. Auto Loop for 1000 Speed Egg Steal
 ---------------------------------------------------------
 task.spawn(function()
     while task.wait(0.1) do
         if Config.AutoGrabEggs then
             local prompt, dist = getNearestPrompt()
-            if prompt and dist and dist <= (prompt.MaxActivationDistance or 15) then
-                if fireproximityprompt then
-                    fireproximityprompt(prompt)
-                else
-                    prompt:InputHoldBegin()
-                    task.wait(prompt.HoldDuration or 0.1)
-                    prompt:InputHoldEnd()
-                end
+            -- Если мы подлетели к яйцу ближе чем на 30 метров на скорости 1000
+            if prompt and dist and dist <= 30 then
+                grabEggBypass(prompt)
             end
         end
     end
 end)
 
 ---------------------------------------------------------
--- 5. Tween Teleport Function
+-- 5. GUI Setup (KerryHub UI)
 ---------------------------------------------------------
-local function tweenToNearestEgg()
-    local prompt, dist = getNearestPrompt()
-    if not prompt or not prompt.Parent then return end
-
-    local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-
-    local targetPart = prompt.Parent
-    local targetCFrame = targetPart.CFrame * CFrame.new(0, 2, 3)
-
-    -- Расчет времени задержки для безопасности сервера (1 секунда на каждые 100 блоков)
-    local flyTime = math.clamp(dist / 80, 0.8, 4)
-
-    local tweenInfo = TweenInfo.new(flyTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tween = TweenService:Create(character.HumanoidRootPart, tweenInfo, {CFrame = targetCFrame})
-    tween:Play()
-
-    tween.Completed:Connect(function()
-        task.wait(0.2)
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        end
-    end)
-end
-
----------------------------------------------------------
--- 6. UI Construction (KerryHub Premium)
----------------------------------------------------------
-if CoreGui:FindFirstChild("KerryHub_PremiumUI") then
-    CoreGui.KerryHub_PremiumUI:Destroy()
+if CoreGui:FindFirstChild("KerryHub_Extreme") then
+    CoreGui.KerryHub_Extreme:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KerryHub_PremiumUI"
+ScreenGui.Name = "KerryHub_Extreme"
 ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 520, 0, 380)
-MainFrame.Position = UDim2.new(0.5, -260, 0.5, -190)
+MainFrame.Size = UDim2.new(0, 520, 0, 340)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -170)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
-MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
@@ -191,8 +169,8 @@ Title.Parent = Header
 local SubTitle = Instance.new("TextLabel")
 SubTitle.Position = UDim2.new(0, 20, 0, 28)
 SubTitle.Size = UDim2.new(0, 200, 0, 15)
-SubTitle.Text = "Egg Steal Fix Edition"
-SubTitle.TextColor3 = Color3.fromRGB(120, 100, 255)
+SubTitle.Text = "1000 Speed Fix Edition"
+SubTitle.TextColor3 = Color3.fromRGB(140, 100, 255)
 SubTitle.TextSize = 11
 SubTitle.Font = Enum.Font.Gotham
 SubTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -210,49 +188,16 @@ CloseBtn.TextSize = 14
 CloseBtn.Parent = Header
 CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 
--- Sidebar
-local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 140, 1, -50)
-Sidebar.Position = UDim2.new(0, 0, 0, 50)
-Sidebar.BackgroundTransparency = 1
-Sidebar.Parent = MainFrame
-
-local function CreateTabButton(name, posY, isActive)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 36)
-    btn.Position = UDim2.new(0, 10, 0, posY)
-    btn.BackgroundColor3 = isActive and Color3.fromRGB(25, 26, 35) or Color3.fromRGB(0, 0, 0)
-    btn.BackgroundTransparency = isActive and 0 or 1
-    btn.Text = "    " .. name
-    btn.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(130, 132, 145)
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 13
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.Parent = Sidebar
-
-    local bCorner = Instance.new("UICorner")
-    bCorner.CornerRadius = UDim.new(0, 8)
-    bCorner.Parent = btn
-    return btn
-end
-
-CreateTabButton("Movement", 0, true)
-CreateTabButton("Egg Stealer", 42, false)
-CreateTabButton("Settings", 84, false)
-
 -- Content Area
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -150, 1, -60)
-Content.Position = UDim2.new(0, 140, 0, 50)
+Content.Size = UDim2.new(1, -40, 1, -70)
+Content.Position = UDim2.new(0, 20, 0, 55)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
----------------------------------------------------------
--- UI Components
----------------------------------------------------------
-local function CreateToggleCard(parent, title, subText, posY, defaultState, callback)
+local function CreateToggle(parent, title, subText, posY, defaultState, callback)
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -10, 0, 55)
+    card.Size = UDim2.new(1, 0, 0, 50)
     card.Position = UDim2.new(0, 0, 0, posY)
     card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
     card.Parent = parent
@@ -262,7 +207,7 @@ local function CreateToggleCard(parent, title, subText, posY, defaultState, call
     cCorner.Parent = card
 
     local tLabel = Instance.new("TextLabel")
-    tLabel.Position = UDim2.new(0, 12, 0, 10)
+    tLabel.Position = UDim2.new(0, 12, 0, 8)
     tLabel.Size = UDim2.new(1, -70, 0, 18)
     tLabel.Text = title
     tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
@@ -273,7 +218,7 @@ local function CreateToggleCard(parent, title, subText, posY, defaultState, call
     tLabel.Parent = card
 
     local sLabel = Instance.new("TextLabel")
-    sLabel.Position = UDim2.new(0, 12, 0, 28)
+    sLabel.Position = UDim2.new(0, 12, 0, 26)
     sLabel.Size = UDim2.new(1, -70, 0, 15)
     sLabel.Text = subText
     sLabel.TextColor3 = Color3.fromRGB(100, 102, 115)
@@ -317,9 +262,9 @@ local function CreateToggleCard(parent, title, subText, posY, defaultState, call
     end)
 end
 
-local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY, callback)
+local function CreateSlider(parent, title, minVal, maxVal, defaultVal, posY, callback)
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -10, 0, 65)
+    card.Size = UDim2.new(1, 0, 0, 60)
     card.Position = UDim2.new(0, 0, 0, posY)
     card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
     card.Parent = parent
@@ -329,7 +274,7 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     cCorner.Parent = card
 
     local tLabel = Instance.new("TextLabel")
-    tLabel.Position = UDim2.new(0, 12, 0, 10)
+    tLabel.Position = UDim2.new(0, 12, 0, 8)
     tLabel.Size = UDim2.new(0, 150, 0, 18)
     tLabel.Text = title
     tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
@@ -340,7 +285,7 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     tLabel.Parent = card
 
     local valLabel = Instance.new("TextLabel")
-    valLabel.Position = UDim2.new(1, -90, 0, 10)
+    valLabel.Position = UDim2.new(1, -90, 0, 8)
     valLabel.Size = UDim2.new(0, 80, 0, 18)
     valLabel.Text = string.format("%.1f", defaultVal)
     valLabel.TextColor3 = Color3.fromRGB(140, 110, 255)
@@ -352,7 +297,7 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
 
     local track = Instance.new("Frame")
     track.Size = UDim2.new(1, -24, 0, 4)
-    track.Position = UDim2.new(0, 12, 0, 42)
+    track.Position = UDim2.new(0, 12, 0, 38)
     track.BackgroundColor3 = Color3.fromRGB(35, 36, 48)
     track.BorderSizePixel = 0
     track.Parent = card
@@ -412,9 +357,9 @@ local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY,
     end)
 end
 
-local function CreateButtonCard(parent, title, buttonText, posY, callback)
+local function CreateButton(parent, title, btnText, posY, callback)
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -10, 0, 50)
+    card.Size = UDim2.new(1, 0, 0, 50)
     card.Position = UDim2.new(0, 0, 0, posY)
     card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
     card.Parent = parent
@@ -435,10 +380,10 @@ local function CreateButtonCard(parent, title, buttonText, posY, callback)
     tLabel.Parent = card
 
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 110, 0, 28)
-    btn.Position = UDim2.new(1, -120, 0.5, -14)
+    btn.Size = UDim2.new(0, 140, 0, 28)
+    btn.Position = UDim2.new(1, -150, 0.5, -14)
     btn.BackgroundColor3 = Color3.fromRGB(120, 80, 255)
-    btn.Text = buttonText
+    btn.Text = btnText
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = 11
@@ -452,24 +397,23 @@ local function CreateButtonCard(parent, title, buttonText, posY, callback)
 end
 
 ---------------------------------------------------------
--- Populating Controls
+-- Add Components
 ---------------------------------------------------------
-CreateToggleCard(Content, "CFrame SpeedHack", "Smooth movement speed", 0, Config.SpeedHackEnabled, function(state)
+CreateToggle(Content, "CFrame SpeedHack", "Extreme velocity speed", 0, Config.SpeedHackEnabled, function(state)
     Config.SpeedHackEnabled = state
 end)
 
-CreateSliderCard(Content, "Speed Value", 16, 1000, Config.SpeedValue, 60, function(value)
+CreateSlider(Content, "Speed Value", 16, 1000, Config.SpeedValue, 56, function(value)
     Config.SpeedValue = value
 end)
 
-CreateToggleCard(Content, "Auto-Slow Near Egg (Anti-Error)", "Slows down near eggs so server accepts it", 130, Config.AutoSlowNearEgg, function(state)
-    Config.AutoSlowNearEgg = state
-end)
-
-CreateToggleCard(Content, "Auto-Grab Eggs (Bypass E)", "Auto activates egg ProximityPrompts", 190, Config.AutoGrabEggs, function(state)
+CreateToggle(Content, "Auto Fast Grab (1000 Speed Fix)", "Auto syncs position with egg", 122, Config.AutoGrabEggs, function(state)
     Config.AutoGrabEggs = state
 end)
 
-CreateButtonCard(Content, "Safe Tween To Nearest Egg", "Fly To Egg", 250, function()
-    tweenToNearestEgg()
+CreateButton(Content, "Manual Instant Grab Nearest Egg", "Instant Grab Egg", 178, function()
+    local prompt, dist = getNearestPrompt()
+    if prompt then
+        grabEggBypass(prompt)
+    end
 end)
