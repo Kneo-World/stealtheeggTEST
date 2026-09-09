@@ -2,79 +2,68 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- 1. Configuration
+-- Настройки
 ---------------------------------------------------------
 local Config = {
-    SpeedHackEnabled = true,
-    SpeedValue = 1000.0,
-    AntiCheatBypass = false,
-    AutoGrabEggs = false
+    SpeedHack = false,
+    SpeedValue = 1000,
+    DeleteHumanoid = false,
+    DesyncBypass = true,
+    AutoGrab = false
 }
 
 ---------------------------------------------------------
--- 2. AntiCheat Bypass Logic (Humanoid Mod)
+-- Bypass Метод 1: Удаление Humanoid
 ---------------------------------------------------------
-local function applyAntiCheatBypass(enable)
-    local character = LocalPlayer.Character
-    if not character then return end
+local function deleteHumanoidBypass()
+    local char = LocalPlayer.Character
+    if not char then return end
     
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-
-    if enable then
-        -- Отключаем соприкосновения и лишние проверки античита
-        if humanoid then
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-            
-            -- Удаляем стандартные скрипты античита из персонажа, если они есть
-            for _, v in pairs(character:GetChildren()) do
-                if v:IsA("Script") or v:IsA("LocalScript") then
-                    if v.Name:lower():find("cheat") or v.Name:lower():find("anticheat") or v.Name:lower():find("speed") then
-                        v:Destroy()
-                    end
-                end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        -- Удаляем скрипты-античиты из персонажа
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("LocalScript") and v ~= script then
+                v.Disabled = true
+                v:Destroy()
             end
-            
-            -- Отключаем регенерацию здоровья/проверку скорости гуманоида
-            humanoid.WalkSpeed = 16
         end
+        hum:Destroy()
     end
 end
 
--- Обработка спавна персонажа
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    if Config.AntiCheatBypass then
-        applyAntiCheatBypass(true)
+---------------------------------------------------------
+-- CFrame Speed Engine + Desync Bypass
+---------------------------------------------------------
+RunService.Heartbeat:Connect(function(delta)
+    if not Config.SpeedHack then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
+    -- Bypass Метод 2: Сброс состояний и WalkSpeed = 0, чтобы сервер не детектил бег
+    if hum and Config.DesyncBypass then
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+        hum.WalkSpeed = 0
     end
-end)
 
----------------------------------------------------------
--- 3. Extreme Speed Engine (CFrame Speed 1000)
----------------------------------------------------------
-RunService.RenderStepped:Connect(function(delta)
-    if not Config.SpeedHackEnabled then return end
-
-    local character = LocalPlayer.Character
-    if not character then return end
-
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
-
-    local moveVector = Vector3.new(0, 0, 0)
-    local camCFrame = Camera.CFrame
-
-    local forward = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z)
-    local right = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z)
+    -- Расчет движения
+    local moveVector = Vector3.zero
+    local camCF = Camera.CFrame
+    local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+    local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
 
     if forward.Magnitude > 0 then forward = forward.Unit end
     if right.Magnitude > 0 then right = right.Unit end
@@ -86,356 +75,141 @@ RunService.RenderStepped:Connect(function(delta)
 
     if moveVector.Magnitude > 0 then
         moveVector = moveVector.Unit
-        rootPart.CFrame = rootPart.CFrame + (moveVector * (Config.SpeedValue * delta))
-        
-        -- Сброс инерции для предотвращения десинхронизации
-        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        root.CFrame = root.CFrame + (moveVector * (Config.SpeedValue * delta))
+        root.AssemblyLinearVelocity = Vector3.zero
     end
 end)
 
 ---------------------------------------------------------
--- 4. Fast Proximity Prompt Grab
+-- Fast Proximity Prompt Auto-Grab
 ---------------------------------------------------------
-local function getNearestPrompt()
-    local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
-    local rootPos = character.HumanoidRootPart.Position
-
-    local closestPrompt = nil
-    local closestDistance = math.huge
-
-    for _, desc in pairs(workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") and desc.Enabled then
-            local parentPart = desc.Parent
-            if parentPart and parentPart:IsA("BasePart") then
-                local dist = (parentPart.Position - rootPos).Magnitude
-                if dist < closestDistance then
-                    closestDistance = dist
-                    closestPrompt = desc
+task.spawn(function()
+    while task.wait(0.05) do
+        if Config.AutoGrab then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local rootPos = char.HumanoidRootPart.Position
+                for _, prompt in pairs(workspace:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                        local part = prompt.Parent
+                        if part and part:IsA("BasePart") then
+                            if (part.Position - rootPos).Magnitude <= 35 then
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                else
+                                    prompt:InputHoldBegin()
+                                    task.wait(0.02)
+                                    prompt:InputHoldEnd()
+                                end
+                            end
+                        end
+                    end
                 end
             end
         end
     end
-    return closestPrompt, closestDistance
-end
-
-local function grabEggBypass(prompt)
-    local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local root = character.HumanoidRootPart
-    local targetPart = prompt.Parent
-
-    if targetPart and targetPart:IsA("BasePart") then
-        local oldCFrame = root.CFrame
-        root.CFrame = targetPart.CFrame
-
-        task.wait(0.03)
-
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        else
-            prompt:InputHoldBegin()
-            task.wait(0.03)
-            prompt:InputHoldEnd()
-        end
-
-        task.wait(0.03)
-    end
-end
-
-task.spawn(function()
-    while task.wait(0.1) do
-        if Config.AutoGrabEggs then
-            local prompt, dist = getNearestPrompt()
-            if prompt and dist and dist <= 35 then
-                grabEggBypass(prompt)
-            end
-        end
-    end
 end)
 
 ---------------------------------------------------------
--- 5. GUI Setup (Exact KerryHub UI)
+-- Минималистичный GUI
 ---------------------------------------------------------
-if CoreGui:FindFirstChild("KerryHub_PremiumUI") then
-    CoreGui.KerryHub_PremiumUI:Destroy()
+if CoreGui:FindFirstChild("MiniSpeedGui") then
+    CoreGui.MiniSpeedGui:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KerryHub_PremiumUI"
+ScreenGui.Name = "MiniSpeedGui"
 ScreenGui.Parent = CoreGui
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 520, 0, 350)
-MainFrame.Position = UDim2.new(0.5, -260, 0.5, -175)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 220, 0, 230)
+Main.Position = UDim2.new(0.05, 0, 0.3, 0)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 12)
-MainCorner.Parent = MainFrame
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = Main
 
--- Header
-local Header = Instance.new("Frame")
-Header.Size = UDim2.new(1, 0, 0, 50)
-Header.BackgroundTransparency = 1
-Header.Parent = MainFrame
-
+-- Title
 local Title = Instance.new("TextLabel")
-Title.Position = UDim2.new(0, 20, 0, 10)
-Title.Size = UDim2.new(0, 200, 0, 20)
-Title.Text = "KerryHub"
-Title.TextColor3 = Color3.fromRGB(240, 240, 245)
-Title.TextSize = 16
+Title.Size = UDim2.new(1, -30, 0, 30)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Text = "Speed Hack & Bypass"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
+Title.TextSize = 13
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.BackgroundTransparency = 1
-Title.Parent = Header
-
-local SubTitle = Instance.new("TextLabel")
-SubTitle.Position = UDim2.new(0, 20, 0, 28)
-SubTitle.Size = UDim2.new(0, 200, 0, 15)
-SubTitle.Text = "PremiumInterface"
-SubTitle.TextColor3 = Color3.fromRGB(100, 102, 115)
-SubTitle.TextSize = 11
-SubTitle.Font = Enum.Font.Gotham
-SubTitle.TextXAlignment = Enum.TextXAlignment.Left
-SubTitle.BackgroundTransparency = 1
-SubTitle.Parent = Header
+Title.Parent = Main
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 20, 0, 20)
-CloseBtn.Position = UDim2.new(1, -30, 0, 15)
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(120, 122, 135)
-CloseBtn.BackgroundTransparency = 1
+CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+CloseBtn.Position = UDim2.new(1, -28, 0, 3)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
 CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 14
-CloseBtn.Parent = Header
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.TextSize = 12
+CloseBtn.Parent = Main
 CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 
--- Sidebar
-local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 140, 1, -50)
-Sidebar.Position = UDim2.new(0, 0, 0, 50)
-Sidebar.BackgroundTransparency = 1
-Sidebar.Parent = MainFrame
-
-local function CreateTabButton(name, posY, isActive)
+-- Helper Button Creator
+local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 36)
+    btn.Size = UDim2.new(1, -20, 0, 32)
     btn.Position = UDim2.new(0, 10, 0, posY)
-    btn.BackgroundColor3 = isActive and Color3.fromRGB(25, 26, 35) or Color3.fromRGB(0, 0, 0)
-    btn.BackgroundTransparency = isActive and 0 or 1
-    btn.Text = "    " .. name
-    btn.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(130, 132, 145)
+    btn.BackgroundColor3 = defaultState and Color3.fromRGB(80, 50, 200) or Color3.fromRGB(35, 35, 45)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 13
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.Parent = Sidebar
+    btn.TextSize = 11
+    btn.Parent = Main
 
-    local bCorner = Instance.new("UICorner")
-    bCorner.CornerRadius = UDim.new(0, 8)
-    bCorner.Parent = btn
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    local state = defaultState
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(80, 50, 200) or Color3.fromRGB(35, 35, 45)
+        callback(state)
+    end)
     return btn
 end
 
-CreateTabButton("Movement", 0, true)
-CreateTabButton("Visuals", 42, false)
-CreateTabButton("Player", 84, false)
-CreateTabButton("Settings", 126, false)
+-- Кнопки управления
+CreateButton("SpeedHack (CFrame 1000)", 35, Config.SpeedHack, function(st)
+    Config.SpeedHack = st
+end)
 
--- Content Area
-local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -150, 1, -60)
-Content.Position = UDim2.new(0, 140, 0, 50)
-Content.BackgroundTransparency = 1
-Content.Parent = MainFrame
+CreateButton("Bypass: Desync Mode", 75, Config.DesyncBypass, function(st)
+    Config.DesyncBypass = st
+end)
 
----------------------------------------------------------
--- Components
----------------------------------------------------------
-local function CreateToggleCard(parent, title, subText, posY, defaultState, callback)
-    local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -10, 0, 55)
-    card.Position = UDim2.new(0, 0, 0, posY)
-    card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
-    card.Parent = parent
-
-    local cCorner = Instance.new("UICorner")
-    cCorner.CornerRadius = UDim.new(0, 8)
-    cCorner.Parent = card
-
-    local tLabel = Instance.new("TextLabel")
-    tLabel.Position = UDim2.new(0, 12, 0, 10)
-    tLabel.Size = UDim2.new(1, -70, 0, 18)
-    tLabel.Text = title
-    tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
-    tLabel.Font = Enum.Font.GothamBold
-    tLabel.TextSize = 13
-    tLabel.TextXAlignment = Enum.TextXAlignment.Left
-    tLabel.BackgroundTransparency = 1
-    tLabel.Parent = card
-
-    local sLabel = Instance.new("TextLabel")
-    sLabel.Position = UDim2.new(0, 12, 0, 28)
-    sLabel.Size = UDim2.new(1, -70, 0, 15)
-    sLabel.Text = subText
-    sLabel.TextColor3 = Color3.fromRGB(100, 102, 115)
-    sLabel.Font = Enum.Font.Gotham
-    sLabel.TextSize = 10
-    sLabel.TextXAlignment = Enum.TextXAlignment.Left
-    sLabel.BackgroundTransparency = 1
-    sLabel.Parent = card
-
-    local switch = Instance.new("TextButton")
-    switch.Size = UDim2.new(0, 42, 0, 22)
-    switch.Position = UDim2.new(1, -52, 0.5, -11)
-    switch.BackgroundColor3 = defaultState and Color3.fromRGB(120, 80, 255) or Color3.fromRGB(35, 36, 48)
-    switch.Text = ""
-    switch.Parent = card
-
-    local swCorner = Instance.new("UICorner")
-    swCorner.CornerRadius = UDim.new(1, 0)
-    swCorner.Parent = switch
-
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = defaultState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.Parent = switch
-
-    local kCorner = Instance.new("UICorner")
-    kCorner.CornerRadius = UDim.new(1, 0)
-    kCorner.Parent = knob
-
-    local enabled = defaultState
-    switch.MouseButton1Click:Connect(function()
-        enabled = not enabled
-        local targetPos = enabled and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-        local targetColor = enabled and Color3.fromRGB(120, 80, 255) or Color3.fromRGB(35, 36, 48)
-
-        TweenService:Create(knob, TweenInfo.new(0.15), {Position = targetPos}):Play()
-        TweenService:Create(switch, TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
-
-        callback(enabled)
-    end)
-end
-
-local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY, callback)
-    local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -10, 0, 65)
-    card.Position = UDim2.new(0, 0, 0, posY)
-    card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
-    card.Parent = parent
-
-    local cCorner = Instance.new("UICorner")
-    cCorner.CornerRadius = UDim.new(0, 8)
-    cCorner.Parent = card
-
-    local tLabel = Instance.new("TextLabel")
-    tLabel.Position = UDim2.new(0, 12, 0, 10)
-    tLabel.Size = UDim2.new(0, 150, 0, 18)
-    tLabel.Text = title
-    tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
-    tLabel.Font = Enum.Font.GothamBold
-    tLabel.TextSize = 13
-    tLabel.TextXAlignment = Enum.TextXAlignment.Left
-    tLabel.BackgroundTransparency = 1
-    tLabel.Parent = card
-
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Position = UDim2.new(1, -90, 0, 10)
-    valLabel.Size = UDim2.new(0, 80, 0, 18)
-    valLabel.Text = string.format("%.1f", defaultVal)
-    valLabel.TextColor3 = Color3.fromRGB(140, 110, 255)
-    valLabel.Font = Enum.Font.GothamBold
-    valLabel.TextSize = 13
-    valLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valLabel.BackgroundTransparency = 1
-    valLabel.Parent = card
-
-    local track = Instance.new("Frame")
-    track.Size = UDim2.new(1, -24, 0, 4)
-    track.Position = UDim2.new(0, 12, 0, 42)
-    track.BackgroundColor3 = Color3.fromRGB(35, 36, 48)
-    track.BorderSizePixel = 0
-    track.Parent = card
-
-    local trCorner = Instance.new("UICorner")
-    trCorner.CornerRadius = UDim.new(1, 0)
-    trCorner.Parent = track
-
-    local fill = Instance.new("Frame")
-    local startRatio = (defaultVal - minVal) / (maxVal - minVal)
-    fill.Size = UDim2.new(startRatio, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(120, 80, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = track
-
-    local fCorner = Instance.new("UICorner")
-    fCorner.CornerRadius = UDim.new(1, 0)
-    fCorner.Parent = fill
-
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 12, 0, 12)
-    knob.Position = UDim2.new(1, -6, 0.5, -6)
-    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.Parent = fill
-
-    local kCorner = Instance.new("UICorner")
-    kCorner.CornerRadius = UDim.new(1, 0)
-    kCorner.Parent = knob
-
-    local dragging = false
-    local function UpdateInput(input)
-        local posX = math.clamp(input.Position.X - track.AbsolutePosition.X, 0, track.AbsoluteSize.X)
-        local ratio = posX / track.AbsoluteSize.X
-        local value = minVal + (ratio * (maxVal - minVal))
-        fill.Size = UDim2.new(ratio, 0, 1, 0)
-        valLabel.Text = string.format("%.1f", value)
-        callback(value)
+local delHumBtn = CreateButton("Bypass: Delete Humanoid", 115, false, function(st)
+    Config.DeleteHumanoid = st
+    if st then
+        deleteHumanoidBypass()
     end
-
-    track.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            UpdateInput(input)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            UpdateInput(input)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-end
-
----------------------------------------------------------
--- Adding Elements Exactly Like KerryHub Screenshot
----------------------------------------------------------
-CreateToggleCard(Content, "CFrame SpeedHack", "Smooth teleportation speed (up to 1000)", 0, Config.SpeedHackEnabled, function(state)
-    Config.SpeedHackEnabled = state
 end)
 
-CreateSliderCard(Content, "Speed Value", 16, 1000, Config.SpeedValue, 65, function(value)
-    Config.SpeedValue = value
+CreateButton("Auto-Grab Eggs / Prompts", 155, Config.AutoGrab, function(st)
+    Config.AutoGrab = st
 end)
 
-CreateToggleCard(Content, "AntiCheat Bypass", "Disables anti-cheat checks & humanoid speed limits", 140, Config.AntiCheatBypass, function(state)
-    Config.AntiCheatBypass = state
-    applyAntiCheatBypass(state)
-end)
-
-CreateToggleCard(Content, "Auto-Grab Eggs", "Instant auto grab proximity prompts", 205, Config.AutoGrabEggs, function(state)
-    Config.AutoGrabEggs = state
-end)
+-- Инфо-текст
+local Info = Instance.new("TextLabel")
+Info.Size = UDim2.new(1, -20, 0, 25)
+Info.Position = UDim2.new(0, 10, 0, 195)
+Info.Text = "Speed: 1000 | WASD to move"
+Info.TextColor3 = Color3.fromRGB(120, 120, 140)
+Info.Font = Enum.Font.Gotham
+Info.TextSize = 10
+Info.BackgroundTransparency = 1
+Info.Parent = Main
