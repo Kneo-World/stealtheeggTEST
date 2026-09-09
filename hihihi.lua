@@ -7,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- Настройки
+-- Настройки67
 ---------------------------------------------------------
 local Config = {
     SpeedHack = false,
