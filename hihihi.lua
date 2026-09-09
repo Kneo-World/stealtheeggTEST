@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -12,7 +13,8 @@ local Camera = workspace.CurrentCamera
 local Config = {
     BypassEnabled = false,
     SpeedHackEnabled = false,
-    MovementSpeed = 50, -- Начальная скорость (можно менять через GUI) 56565
+    MovementSpeed = 200,    -- Скорость для обычного бега (WASD)
+    FarmSpeed = 45,         -- Безопасная скорость для несущего яйцо (чтобы не было Delivery Failed)
     
     EspEnabled = false,
     
@@ -22,7 +24,7 @@ local Config = {
 }
 
 ---------------------------------------------------------
--- 2. AntiCheat Bypass + Ultra Smooth Movement
+-- 2. Bypass & Smooth WASD Movement
 ---------------------------------------------------------
 local function ApplyNoHumanoidBypass()
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -32,24 +34,21 @@ local function ApplyNoHumanoidBypass()
     if humanoid then
         Camera.CameraSubject = rootPart
         humanoid:Destroy()
-        print("[Bypass] Humanoid удален, камера зафиксирована на RootPart.")
+        print("[Bypass] Humanoid удален, камера зафиксирована.")
     end
 end
 
--- Плавное и стабильное передвижение без застревания в полу
 RunService.RenderStepped:Connect(function(delta)
     if not Config.SpeedHackEnabled then return end
     
     local character = LocalPlayer.Character
     if not character then return end
-    
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
     local moveVector = Vector3.new(0, 0, 0)
     local camCFrame = Camera.CFrame
 
-    -- Берем плоские векторы направления (без оси Y, чтобы не уходить под землю)
     local forward = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z).Unit
     local right = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z).Unit
 
@@ -76,7 +75,6 @@ local function CreateHighlight(targetModel, color)
     highlight.FillColor = color
     highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
     highlight.FillTransparency = 0.4
-    highlight.OutlineTransparency = 0
     highlight.Adornee = targetModel
     highlight.Parent = targetModel
 end
@@ -131,7 +129,7 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------
--- 4. Auto Farm System
+-- 4. Safe Flight & Auto Farm System (Anti Delivery-Fail)
 ---------------------------------------------------------
 local function GetSortedZones()
     local zones = {}
@@ -220,21 +218,30 @@ local function GetTargetEgg()
     return nil
 end
 
-local function FlyToTarget(targetPosition)
+-- Плавное перемещение с ограничением скорости (чтобы сервер не аннулировал яйцо)
+local function SafeMoveTo(targetPosition)
     local character = LocalPlayer.Character
     if not character then return false end
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return false end
 
-    while Config.AutoFarmEnabled do
-        local currentPos = rootPart.Position
-        local distance = (targetPosition - currentPos).Magnitude
-        
-        if distance < 4 then break end
+    local distance = (targetPosition - rootPart.Position).Magnitude
+    local timeToTravel = distance / math.max(Config.FarmSpeed, 10)
 
-        local direction = (targetPosition - currentPos).Unit
-        rootPart.CFrame = rootPart.CFrame + (direction * (Config.MovementSpeed * RunService.RenderStepped:Wait()))
+    local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = CFrame.new(targetPosition)})
+    
+    tween:Play()
+    
+    local start = tick()
+    while tween.PlaybackState == Enum.PlaybackState.Playing do
+        if not Config.AutoFarmEnabled then
+            tween:Cancel()
+            return false
+        end
+        task.wait(0.05)
     end
+    
     return true
 end
 
@@ -245,42 +252,47 @@ task.spawn(function()
 
             if targetEgg and targetEgg.Parent then
                 local prompt = targetEgg:FindFirstChildWhichIsA("ProximityPrompt", true)
-                local eggPos = targetEgg:GetPrimaryPartCFrame().Position
+                local eggPos = targetEgg:IsA("Model") and targetEgg:GetPrimaryPartCFrame().Position or targetEgg.Position
 
                 if prompt and eggPos then
-                    FlyToTarget(eggPos)
-
-                    if targetEgg.Parent and prompt then
-                        prompt.HoldDuration = 0
-                        fireproximityprompt(prompt)
+                    -- 1. Летим к яйцу
+                    if SafeMoveTo(eggPos) then
                         task.wait(0.2)
-                    end
+                        
+                        -- 2. Забираем
+                        if targetEgg.Parent and prompt then
+                            prompt.HoldDuration = 0
+                            fireproximityprompt(prompt)
+                            task.wait(0.5) -- Небольшая пауза, чтобы сервер успел выдать яйцо в руки
+                        end
 
-                    local ground = workspace:FindFirstChild("Ground", true)
-                    if ground then
-                        local groundPos = ground:IsA("Model") and ground:GetPrimaryPartCFrame().Position or ground.Position
-                        FlyToTarget(groundPos)
-                        task.wait(0.3)
+                        -- 3. Несем на базу с безопасной скоростью
+                        local ground = workspace:FindFirstChild("Ground", true)
+                        if ground then
+                            local groundPos = ground:IsA("Model") and ground:GetPrimaryPartCFrame().Position or ground.Position
+                            SafeMoveTo(groundPos)
+                            task.wait(0.5) -- Даем серверу засчитать занос яйца
+                        end
                     end
                 end
             end
         end
-        task.wait(0.3)
+        task.wait(0.5)
     end
 end)
 
 ---------------------------------------------------------
--- 5. GUI Interface (KerryHub Style + Speed Box)
+-- 5. GUI Interface
 ---------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KerryHub_Fixed"
+ScreenGui.Name = "KerryHub_FixedV2"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 480, 0, 310)
-MainFrame.Position = UDim2.new(0.5, -240, 0.5, -155)
+MainFrame.Size = UDim2.new(0, 480, 0, 320)
+MainFrame.Position = UDim2.new(0.5, -240, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 MainFrame.Active = true
 MainFrame.Draggable = true
@@ -293,7 +305,7 @@ UICorner.Parent = MainFrame
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -20, 0, 40)
 Title.Position = UDim2.new(0, 15, 0, 0)
-Title.Text = "KerryHub | Steal An Egg [Fixed]"
+Title.Text = "KerryHub | Steal An Egg [Safe Farm]"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 18
 Title.Font = Enum.Font.GothamBold
@@ -427,8 +439,7 @@ local function CreateButton(parent, text, posY, callback)
     return btn
 end
 
--- Ввод своей скорости (Input Box)
-local function CreateSpeedInput(parent, posY)
+local function CreateInput(parent, labelText, defaultVal, posY, callback)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 35)
     frame.Position = UDim2.new(0, 0, 0, posY)
@@ -440,9 +451,9 @@ local function CreateSpeedInput(parent, posY)
     fCorner.Parent = frame
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 150, 1, 0)
+    label.Size = UDim2.new(0, 180, 1, 0)
     label.Position = UDim2.new(0, 10, 0, 0)
-    label.Text = "Speed Value:"
+    label.Text = labelText
     label.TextColor3 = Color3.fromRGB(220, 220, 220)
     label.Font = Enum.Font.Gotham
     label.TextSize = 13
@@ -451,10 +462,10 @@ local function CreateSpeedInput(parent, posY)
     label.Parent = frame
 
     local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(0, 80, 0, 25)
-    textBox.Position = UDim2.new(1, -90, 0.5, -12)
+    textBox.Size = UDim2.new(0, 70, 0, 25)
+    textBox.Position = UDim2.new(1, -80, 0.5, -12)
     textBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-    textBox.Text = tostring(Config.MovementSpeed)
+    textBox.Text = tostring(defaultVal)
     textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
     textBox.Font = Enum.Font.GothamBold
     textBox.TextSize = 13
@@ -467,28 +478,29 @@ local function CreateSpeedInput(parent, posY)
     textBox.FocusLost:Connect(function()
         local num = tonumber(textBox.Text)
         if num then
-            Config.MovementSpeed = num
-            print("[Movement] Скорость изменена на: " .. num)
+            callback(num)
         else
-            textBox.Text = tostring(Config.MovementSpeed)
+            textBox.Text = tostring(defaultVal)
         end
     end)
 end
 
 ---------------------------------------------------------
--- Заполнение страниц
+-- Наполнение интерфейса
 ---------------------------------------------------------
-CreateButton(PageMovement, "AntiCheat Bypass (Remove Humanoid)", 0, function()
+CreateButton(PageMovement, "Bypass AntiCheat", 0, function()
     ApplyNoHumanoidBypass()
 end)
 
-CreateToggle(PageMovement, "CFrame SpeedHack", 45, function(state)
+CreateToggle(PageMovement, "CFrame SpeedHack (WASD)", 45, function(state)
     Config.SpeedHackEnabled = state
 end)
 
-CreateSpeedInput(PageMovement, 90) -- Поле ввода скорости
+CreateInput(PageMovement, "WASD Speed (50-500):", Config.MovementSpeed, 90, function(val)
+    Config.MovementSpeed = val
+end)
 
-CreateToggle(PageVisuals, "ESP Eggs (Biggest / Parasite / Secret)", 0, function(state)
+CreateToggle(PageVisuals, "ESP Eggs", 0, function(state)
     Config.EspEnabled = state
 end)
 
@@ -496,7 +508,11 @@ CreateToggle(PageAutoFarm, "Auto Farm Eggs", 0, function(state)
     Config.AutoFarmEnabled = state
 end)
 
-local eggBtn = CreateButton(PageAutoFarm, "Type: Biggest Egg", 45, function() end)
+CreateInput(PageAutoFarm, "Farm Safe Speed (30-50):", Config.FarmSpeed, 45, function(val)
+    Config.FarmSpeed = val
+end)
+
+local eggBtn = CreateButton(PageAutoFarm, "Type: Biggest Egg", 90, function() end)
 eggBtn.MouseButton1Click:Connect(function()
     if Config.SelectedEggType == "Biggest Egg" then
         Config.SelectedEggType = "Parasite Egg"
@@ -508,7 +524,7 @@ eggBtn.MouseButton1Click:Connect(function()
     eggBtn.Text = "Type: " .. Config.SelectedEggType
 end)
 
-local zoneBtn = CreateButton(PageAutoFarm, "Zone: All Zones", 90, function() end)
+local zoneBtn = CreateButton(PageAutoFarm, "Zone: All Zones", 135, function() end)
 zoneBtn.MouseButton1Click:Connect(function()
     if Config.SelectedZone == "All Zones" then
         Config.SelectedZone = "Zone 1"
