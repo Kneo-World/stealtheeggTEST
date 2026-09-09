@@ -1,19 +1,21 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- Настройки67
+-- Настройки
 ---------------------------------------------------------
 local Config = {
     SpeedHack = false,
     SpeedValue = 500,
     DesyncBypass = false,
-    AutoToggleOnInteract = true -- Авто-выключение при подборе/сдаче
+    AutoToggleOnInteract = true,
+    PauseDuration = 0.3 -- Микро-пауза (0.3 сек)
 }
 
 ---------------------------------------------------------
@@ -110,26 +112,29 @@ RunService.Heartbeat:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- Автоматическое выключение спидхака при нажатии ProximityPrompt (E)
+-- Быстрый Auto-Pause при взаимодействии
 ---------------------------------------------------------
 local isPausingForEgg = false
+local speedBtnRef = nil
 
-ProximityPromptService = game:GetService("ProximityPromptService")
 ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
     if player == LocalPlayer and Config.AutoToggleOnInteract and not isPausingForEgg then
         isPausingForEgg = true
         
-        -- Запоминаем текущее состояние
         local wasSpeedOn = Config.SpeedHack
-        
-        -- Выключаем спидхак для проверки сервером
         Config.SpeedHack = false
         
-        -- Ждём 1.5 секунды, пока сервер обработает сдачу/подбор
-        task.wait(0.3)
+        if speedBtnRef and wasSpeedOn then
+            speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтая подсветка во время паузы
+        end
+
+        task.wait(Config.PauseDuration) -- Микро-задержка 0.3 секунды
         
-        -- Возвращаем спидхак обратно
         Config.SpeedHack = wasSpeedOn
+        if speedBtnRef and wasSpeedOn then
+            speedBtnRef.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+        end
+        
         isPausingForEgg = false
     end
 end)
@@ -241,7 +246,7 @@ SpeedInput.FocusLost:Connect(function()
 end)
 
 -- Buttons
-CreateButton("SpeedHack (CFrame)", 70, Config.SpeedHack, function(st)
+speedBtnRef = CreateButton("SpeedHack (CFrame)", 70, Config.SpeedHack, function(st)
     Config.SpeedHack = st
 end)
 
@@ -255,6 +260,6 @@ CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
     end
 end)
 
-CreateButton("Auto-Pause Speed on Pick/Drop", 190, Config.AutoToggleOnInteract, function(st)
+CreateButton("Fast Auto-Pause (0.3s)", 190, Config.AutoToggleOnInteract, function(st)
     Config.AutoToggleOnInteract = st
 end)
