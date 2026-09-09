@@ -8,49 +8,35 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 ---------------------------------------------------------
--- 1. Настройки (Config)
+-- 1. Config
 ---------------------------------------------------------
 local Config = {
-    BypassEnabled = false,
     SpeedHackEnabled = false,
-    MovementSpeed = 200,    -- Скорость для обычного бега (WASD)
-    FarmSpeed = 45,         -- Безопасная скорость для несущего яйцо (чтобы не было Delivery Failed)
-    
-    EspEnabled = false,
-    
-    AutoFarmEnabled = false,
-    SelectedEggType = "Biggest Egg",
-    SelectedZone = "All Zones"
+    SpeedValue = 700.7,
+    BypassEnabled = false
 }
 
 ---------------------------------------------------------
--- 2. Bypass & Smooth WASD Movement
+-- 2. Fixed CFrame SpeedHack Logic
 ---------------------------------------------------------
-local function ApplyNoHumanoidBypass()
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local rootPart = character:WaitForChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-    if humanoid then
-        Camera.CameraSubject = rootPart
-        humanoid:Destroy()
-        print("[Bypass] Humanoid удален, камера зафиксирована.")
-    end
-end
-
 RunService.RenderStepped:Connect(function(delta)
     if not Config.SpeedHackEnabled then return end
     
     local character = LocalPlayer.Character
     if not character then return end
+    
     local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not rootPart then return end
 
     local moveVector = Vector3.new(0, 0, 0)
     local camCFrame = Camera.CFrame
 
-    local forward = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z).Unit
-    local right = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z).Unit
+    local forward = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z)
+    local right = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z)
+
+    if forward.Magnitude > 0 then forward = forward.Unit end
+    if right.Magnitude > 0 then right = right.Unit end
 
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + forward end
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector - forward end
@@ -59,481 +45,311 @@ RunService.RenderStepped:Connect(function(delta)
 
     if moveVector.Magnitude > 0 then
         moveVector = moveVector.Unit
-        rootPart.CFrame = rootPart.CFrame + (moveVector * (Config.MovementSpeed * delta))
+        rootPart.CFrame = rootPart.CFrame + (moveVector * (Config.SpeedValue * delta))
+        
+        -- Сброс падения/гравитационных багов при высокой скорости
+        if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0)
+        end
     end
 end)
 
 ---------------------------------------------------------
--- 3. ESP System
+-- 3. UI Construction (KerryHub Premium Interface)
 ---------------------------------------------------------
-local function CreateHighlight(targetModel, color)
-    local oldHL = targetModel:FindFirstChild("EggESP_Highlight")
-    if oldHL then oldHL:Destroy() end
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "EggESP_Highlight"
-    highlight.FillColor = color
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.4
-    highlight.Adornee = targetModel
-    highlight.Parent = targetModel
+if CoreGui:FindFirstChild("KerryHub_PremiumUI") then
+    CoreGui.KerryHub_PremiumUI:Destroy()
 end
 
-local function HasFXEffect(model)
-    for _, desc in ipairs(model:GetDescendants()) do
-        if desc.Name == "fx" or desc:IsA("ParticleEmitter") or desc:IsA("Beam") or desc:IsA("Sparkles") or desc:IsA("Fire") or desc:IsA("PointLight") then
-            return true
-        end
-    end
-    return false
-end
-
-local function ProcessEggsESP()
-    if not Config.EspEnabled then return end
-    
-    local eggFolder = workspace:FindFirstChild("AreaEggSlotsClient", true)
-    if not eggFolder then return end
-
-    local biggestEgg = nil
-    local maxVolume = 0
-
-    for _, eggModel in ipairs(eggFolder:GetChildren()) do
-        if eggModel:IsA("Model") then
-            local success, size = pcall(function() return eggModel:GetExtentsSize() end)
-            if success and size then
-                local volume = size.X * size.Y * size.Z
-                if volume > maxVolume then
-                    maxVolume = volume
-                    biggestEgg = eggModel
-                end
-            end
-
-            if eggModel:FindFirstChild("MonsterParasiteVisual", true) then
-                CreateHighlight(eggModel, Color3.fromRGB(255, 0, 0))
-            elseif HasFXEffect(eggModel) then
-                CreateHighlight(eggModel, Color3.fromRGB(255, 0, 255))
-            end
-        end
-    end
-
-    if biggestEgg and not biggestEgg:FindFirstChild("EggESP_Highlight") then
-        CreateHighlight(biggestEgg, Color3.fromRGB(255, 215, 0))
-    end
-end
-
-task.spawn(function()
-    while true do
-        pcall(ProcessEggsESP)
-        task.wait(2)
-    end
-end)
-
----------------------------------------------------------
--- 4. Safe Flight & Auto Farm System (Anti Delivery-Fail)
----------------------------------------------------------
-local function GetSortedZones()
-    local zones = {}
-    local ground = workspace:FindFirstChild("Ground", true)
-    
-    local signs = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "RequiredSpeedSign" then
-            table.insert(signs, obj)
-        end
-    end
-
-    if ground and #signs > 0 then
-        table.sort(signs, function(a, b)
-            local posA = a:IsA("Model") and a:GetPrimaryPartCFrame().Position or a.Position
-            local posB = b:IsA("Model") and b:GetPrimaryPartCFrame().Position or b.Position
-            local gPos = ground:IsA("Model") and ground:GetPrimaryPartCFrame().Position or ground.Position
-            return (posA - gPos).Magnitude < (posB - gPos).Magnitude
-        end)
-
-        for idx, sign in ipairs(signs) do
-            zones["Zone " .. idx] = sign
-        end
-    end
-    return zones
-end
-
-local function GetEggZone(eggModel, zones)
-    local eggPos = eggModel:IsA("Model") and eggModel:GetPrimaryPartCFrame().Position or eggModel.Position
-    local closestZone = "Zone 1"
-    local minDistance = math.huge
-
-    for zoneName, signObj in pairs(zones) do
-        local signPos = signObj:IsA("Model") and signObj:GetPrimaryPartCFrame().Position or signObj.Position
-        local dist = (eggPos - signPos).Magnitude
-        if dist < minDistance then
-            minDistance = dist
-            closestZone = zoneName
-        end
-    end
-    return closestZone
-end
-
-local function GetTargetEgg()
-    local eggFolder = workspace:FindFirstChild("AreaEggSlotsClient", true)
-    if not eggFolder then return nil end
-
-    local zones = GetSortedZones()
-    local candidates = {}
-
-    for _, eggModel in ipairs(eggFolder:GetChildren()) do
-        if eggModel:IsA("Model") and eggModel:FindFirstChildWhichIsA("ProximityPrompt", true) then
-            local eggZone = GetEggZone(eggModel, zones)
-            if Config.SelectedZone == "All Zones" or Config.SelectedZone == eggZone then
-                table.insert(candidates, eggModel)
-            end
-        end
-    end
-
-    if #candidates == 0 then return nil end
-
-    if Config.SelectedEggType == "Parasite Egg" then
-        for _, egg in ipairs(candidates) do
-            if egg:FindFirstChild("MonsterParasiteVisual", true) then return egg end
-        end
-    elseif Config.SelectedEggType == "Secret Egg" then
-        for _, egg in ipairs(candidates) do
-            if HasFXEffect(egg) then return egg end
-        end
-    elseif Config.SelectedEggType == "Biggest Egg" then
-        local biggestEgg = nil
-        local maxVolume = 0
-        for _, egg in ipairs(candidates) do
-            local success, size = pcall(function() return egg:GetExtentsSize() end)
-            if success and size then
-                local volume = size.X * size.Y * size.Z
-                if volume > maxVolume then
-                    maxVolume = volume
-                    biggestEgg = egg
-                end
-            end
-        end
-        return biggestEgg
-    end
-
-    return nil
-end
-
--- Плавное перемещение с ограничением скорости (чтобы сервер не аннулировал яйцо)
-local function SafeMoveTo(targetPosition)
-    local character = LocalPlayer.Character
-    if not character then return false end
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return false end
-
-    local distance = (targetPosition - rootPart.Position).Magnitude
-    local timeToTravel = distance / math.max(Config.FarmSpeed, 10)
-
-    local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = CFrame.new(targetPosition)})
-    
-    tween:Play()
-    
-    local start = tick()
-    while tween.PlaybackState == Enum.PlaybackState.Playing do
-        if not Config.AutoFarmEnabled then
-            tween:Cancel()
-            return false
-        end
-        task.wait(0.05)
-    end
-    
-    return true
-end
-
-task.spawn(function()
-    while true do
-        if Config.AutoFarmEnabled then
-            local targetEgg = GetTargetEgg()
-
-            if targetEgg and targetEgg.Parent then
-                local prompt = targetEgg:FindFirstChildWhichIsA("ProximityPrompt", true)
-                local eggPos = targetEgg:IsA("Model") and targetEgg:GetPrimaryPartCFrame().Position or targetEgg.Position
-
-                if prompt and eggPos then
-                    -- 1. Летим к яйцу
-                    if SafeMoveTo(eggPos) then
-                        task.wait(0.2)
-                        
-                        -- 2. Забираем
-                        if targetEgg.Parent and prompt then
-                            prompt.HoldDuration = 0
-                            fireproximityprompt(prompt)
-                            task.wait(0.5) -- Небольшая пауза, чтобы сервер успел выдать яйцо в руки
-                        end
-
-                        -- 3. Несем на базу с безопасной скоростью
-                        local ground = workspace:FindFirstChild("Ground", true)
-                        if ground then
-                            local groundPos = ground:IsA("Model") and ground:GetPrimaryPartCFrame().Position or ground.Position
-                            SafeMoveTo(groundPos)
-                            task.wait(0.5) -- Даем серверу засчитать занос яйца
-                        end
-                    end
-                end
-            end
-        end
-        task.wait(0.5)
-    end
-end)
-
----------------------------------------------------------
--- 5. GUI Interface
----------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KerryHub_FixedV2"
+ScreenGui.Name = "KerryHub_PremiumUI"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
+-- Main Window
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 480, 0, 320)
-MainFrame.Position = UDim2.new(0.5, -240, 0.5, -160)
-MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+MainFrame.Size = UDim2.new(0, 520, 0, 340)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -170)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
+MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 50)
+Header.BackgroundTransparency = 1
+Header.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -20, 0, 40)
-Title.Position = UDim2.new(0, 15, 0, 0)
-Title.Text = "KerryHub | Steal An Egg [Safe Farm]"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 18
+Title.Position = UDim2.new(0, 20, 0, 10)
+Title.Size = UDim2.new(0, 200, 0, 20)
+Title.Text = "KerryHub"
+Title.TextColor3 = Color3.fromRGB(240, 240, 245)
+Title.TextSize = 16
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.BackgroundTransparency = 1
-Title.Parent = MainFrame
+Title.Parent = Header
 
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Position = UDim2.new(0, 20, 0, 28)
+SubTitle.Size = UDim2.new(0, 200, 0, 15)
+SubTitle.Text = "PremiumInterface"
+SubTitle.TextColor3 = Color3.fromRGB(100, 102, 115)
+SubTitle.TextSize = 11
+SubTitle.Font = Enum.Font.Gotham
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.BackgroundTransparency = 1
+SubTitle.Parent = Header
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 20, 0, 20)
+CloseBtn.Position = UDim2.new(1, -30, 0, 15)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(120, 122, 135)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 14
+CloseBtn.Parent = Header
+CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+-- Sidebar
 local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 120, 1, -50)
-Sidebar.Position = UDim2.new(0, 10, 0, 45)
-Sidebar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+Sidebar.Size = UDim2.new(0, 140, 1, -50)
+Sidebar.Position = UDim2.new(0, 0, 0, 50)
+Sidebar.BackgroundTransparency = 1
 Sidebar.Parent = MainFrame
 
-local SidebarCorner = Instance.new("UICorner")
-SidebarCorner.CornerRadius = UDim.new(0, 8)
-SidebarCorner.Parent = Sidebar
-
-local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -150, 1, -50)
-Content.Position = UDim2.new(0, 140, 0, 45)
-Content.BackgroundTransparency = 1
-Content.Parent = MainFrame
-
-local function CreateTabButton(name, positionY)
+local function CreateTabButton(name, icon, posY, isActive)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -10, 0, 32)
-    btn.Position = UDim2.new(0, 5, 0, positionY)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Size = UDim2.new(1, -20, 0, 36)
+    btn.Position = UDim2.new(0, 10, 0, posY)
+    btn.BackgroundColor3 = isActive and Color3.fromRGB(25, 26, 35) or Color3.fromRGB(0, 0, 0)
+    btn.BackgroundTransparency = isActive and 0 or 1
+    btn.Text = "    " .. name
+    btn.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(130, 132, 145)
     btn.Font = Enum.Font.GothamMedium
     btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.Parent = Sidebar
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
-    btnCorner.Parent = btn
+
+    local bCorner = Instance.new("UICorner")
+    bCorner.CornerRadius = UDim.new(0, 8)
+    bCorner.Parent = btn
+
     return btn
 end
 
-local TabMovementBtn = CreateTabButton("Movement", 10)
-local TabVisualsBtn = CreateTabButton("Visuals", 48)
-local TabAutoFarmBtn = CreateTabButton("Auto Farm", 86)
+local TabMovement = CreateTabButton("Movement", "", 0, true)
+local TabVisuals = CreateTabButton("Visuals", "", 42, false)
+local TabPlayer = CreateTabButton("Player", "", 84, false)
+local TabSettings = CreateTabButton("Settings", "", 126, false)
 
-local PageMovement = Instance.new("Frame")
-PageMovement.Size = UDim2.new(1, 0, 1, 0)
-PageMovement.BackgroundTransparency = 1
-PageMovement.Parent = Content
+-- Content Area
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -150, 1, -60)
+Content.Position = UDim2.new(0, 140, 0, 50)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
 
-local PageVisuals = Instance.new("Frame")
-PageVisuals.Size = UDim2.new(1, 0, 1, 0)
-PageVisuals.BackgroundTransparency = 1
-PageVisuals.Visible = false
-PageVisuals.Parent = Content
+---------------------------------------------------------
+-- Components Creator (Toggle & Slider)
+---------------------------------------------------------
+local function CreateToggleCard(parent, title, subText, posY, defaultState, callback)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -10, 0, 55)
+    card.Position = UDim2.new(0, 0, 0, posY)
+    card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
+    card.Parent = parent
 
-local PageAutoFarm = Instance.new("Frame")
-PageAutoFarm.Size = UDim2.new(1, 0, 1, 0)
-PageAutoFarm.BackgroundTransparency = 1
-PageAutoFarm.Visible = false
-PageAutoFarm.Parent = Content
+    local cCorner = Instance.new("UICorner")
+    cCorner.CornerRadius = UDim.new(0, 8)
+    cCorner.Parent = card
 
-TabMovementBtn.MouseButton1Click:Connect(function()
-    PageMovement.Visible = true; PageVisuals.Visible = false; PageAutoFarm.Visible = false
-end)
+    local tLabel = Instance.new("TextLabel")
+    tLabel.Position = UDim2.new(0, 12, 0, 10)
+    tLabel.Size = UDim2.new(1, -70, 0, 18)
+    tLabel.Text = title
+    tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
+    tLabel.Font = Enum.Font.GothamBold
+    tLabel.TextSize = 13
+    tLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tLabel.BackgroundTransparency = 1
+    tLabel.Parent = card
 
-TabVisualsBtn.MouseButton1Click:Connect(function()
-    PageMovement.Visible = false; PageVisuals.Visible = true; PageAutoFarm.Visible = false
-end)
+    local sLabel = Instance.new("TextLabel")
+    sLabel.Position = UDim2.new(0, 12, 0, 28)
+    sLabel.Size = UDim2.new(1, -70, 0, 15)
+    sLabel.Text = subText
+    sLabel.TextColor3 = Color3.fromRGB(100, 102, 115)
+    sLabel.Font = Enum.Font.Gotham
+    sLabel.TextSize = 10
+    sLabel.TextXAlignment = Enum.TextXAlignment.Left
+    sLabel.BackgroundTransparency = 1
+    sLabel.Parent = card
 
-TabAutoFarmBtn.MouseButton1Click:Connect(function()
-    PageMovement.Visible = false; PageVisuals.Visible = false; PageAutoFarm.Visible = true
-end)
+    -- Toggle Switch Outer
+    local switch = Instance.new("TextButton")
+    switch.Size = UDim2.new(0, 42, 0, 22)
+    switch.Position = UDim2.new(1, -52, 0.5, -11)
+    switch.BackgroundColor3 = defaultState and Color3.fromRGB(120, 80, 255) or Color3.fromRGB(35, 36, 48)
+    switch.Text = ""
+    switch.Parent = card
 
-local function CreateToggle(parent, text, posY, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 35)
-    frame.Position = UDim2.new(0, 0, 0, posY)
-    frame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-    frame.Parent = parent
+    local swCorner = Instance.new("UICorner")
+    swCorner.CornerRadius = UDim.new(1, 0)
+    swCorner.Parent = switch
 
-    local fCorner = Instance.new("UICorner")
-    fCorner.CornerRadius = UDim.new(0, 6)
-    fCorner.Parent = frame
+    -- Toggle Circle Knob
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = defaultState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Parent = switch
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -50, 1, 0)
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Text = text
-    label.TextColor3 = Color3.fromRGB(220, 220, 220)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.BackgroundTransparency = 1
-    label.Parent = frame
+    local kCorner = Instance.new("UICorner")
+    kCorner.CornerRadius = UDim.new(1, 0)
+    kCorner.Parent = knob
 
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 40, 0, 20)
-    toggleBtn.Position = UDim2.new(1, -50, 0.5, -10)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-    toggleBtn.Text = ""
-    toggleBtn.Parent = frame
-
-    local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(1, 0)
-    tCorner.Parent = toggleBtn
-
-    local enabled = false
-    toggleBtn.MouseButton1Click:Connect(function()
+    local enabled = defaultState
+    switch.MouseButton1Click:Connect(function()
         enabled = not enabled
-        toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(120, 90, 255) or Color3.fromRGB(50, 50, 60)
+        local targetPos = enabled and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        local targetColor = enabled and Color3.fromRGB(120, 80, 255) or Color3.fromRGB(35, 36, 48)
+
+        TweenService:Create(knob, TweenInfo.new(0.15), {Position = targetPos}):Play()
+        TweenService:Create(switch, TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
+
         callback(enabled)
     end)
 end
 
-local function CreateButton(parent, text, posY, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 35)
-    btn.Position = UDim2.new(0, 0, 0, posY)
-    btn.BackgroundColor3 = Color3.fromRGB(120, 90, 255)
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.Parent = parent
+local function CreateSliderCard(parent, title, minVal, maxVal, defaultVal, posY, callback)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -10, 0, 65)
+    card.Position = UDim2.new(0, 0, 0, posY)
+    card.BackgroundColor3 = Color3.fromRGB(20, 21, 28)
+    card.Parent = parent
 
-    local bCorner = Instance.new("UICorner")
-    bCorner.CornerRadius = UDim.new(0, 6)
-    bCorner.Parent = btn
+    local cCorner = Instance.new("UICorner")
+    cCorner.CornerRadius = UDim.new(0, 8)
+    cCorner.Parent = card
 
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
+    local tLabel = Instance.new("TextLabel")
+    tLabel.Position = UDim2.new(0, 12, 0, 10)
+    tLabel.Size = UDim2.new(0, 150, 0, 18)
+    tLabel.Text = title
+    tLabel.TextColor3 = Color3.fromRGB(230, 230, 235)
+    tLabel.Font = Enum.Font.GothamBold
+    tLabel.TextSize = 13
+    tLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tLabel.BackgroundTransparency = 1
+    tLabel.Parent = card
 
-local function CreateInput(parent, labelText, defaultVal, posY, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 35)
-    frame.Position = UDim2.new(0, 0, 0, posY)
-    frame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-    frame.Parent = parent
+    local valLabel = Instance.new("TextLabel")
+    valLabel.Position = UDim2.new(1, -90, 0, 10)
+    valLabel.Size = UDim2.new(0, 80, 0, 18)
+    valLabel.Text = string.format("%.1f", defaultVal)
+    valLabel.TextColor3 = Color3.fromRGB(140, 110, 255)
+    valLabel.Font = Enum.Font.GothamBold
+    valLabel.TextSize = 13
+    valLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valLabel.BackgroundTransparency = 1
+    valLabel.Parent = card
+
+    -- Slider Track
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -24, 0, 4)
+    track.Position = UDim2.new(0, 12, 0, 42)
+    track.BackgroundColor3 = Color3.fromRGB(35, 36, 48)
+    track.BorderSizePixel = 0
+    track.Parent = card
+
+    local trCorner = Instance.new("UICorner")
+    trCorner.CornerRadius = UDim.new(1, 0)
+    trCorner.Parent = track
+
+    -- Active Fill
+    local fill = Instance.new("Frame")
+    local startRatio = (defaultVal - minVal) / (maxVal - minVal)
+    fill.Size = UDim2.new(startRatio, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(120, 80, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
 
     local fCorner = Instance.new("UICorner")
-    fCorner.CornerRadius = UDim.new(0, 6)
-    fCorner.Parent = frame
+    fCorner.CornerRadius = UDim.new(1, 0)
+    fCorner.Parent = fill
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 180, 1, 0)
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Text = labelText
-    label.TextColor3 = Color3.fromRGB(220, 220, 220)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.BackgroundTransparency = 1
-    label.Parent = frame
+    -- Slider Knob
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    knob.Position = UDim2.new(1, -6, 0.5, -6)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Parent = fill
 
-    local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(0, 70, 0, 25)
-    textBox.Position = UDim2.new(1, -80, 0.5, -12)
-    textBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-    textBox.Text = tostring(defaultVal)
-    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    textBox.Font = Enum.Font.GothamBold
-    textBox.TextSize = 13
-    textBox.Parent = frame
+    local kCorner = Instance.new("UICorner")
+    kCorner.CornerRadius = UDim.new(1, 0)
+    kCorner.Parent = knob
 
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 4)
-    boxCorner.Parent = textBox
+    -- Drag Logic
+    local dragging = false
 
-    textBox.FocusLost:Connect(function()
-        local num = tonumber(textBox.Text)
-        if num then
-            callback(num)
-        else
-            textBox.Text = tostring(defaultVal)
+    local function UpdateInput(input)
+        local posX = math.clamp(input.Position.X - track.AbsolutePosition.X, 0, track.AbsoluteSize.X)
+        local ratio = posX / track.AbsoluteSize.X
+        local value = minVal + (ratio * (maxVal - minVal))
+        
+        fill.Size = UDim2.new(ratio, 0, 1, 0)
+        valLabel.Text = string.format("%.1f", value)
+        callback(value)
+    end
+
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            UpdateInput(input)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            UpdateInput(input)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
         end
     end)
 end
 
 ---------------------------------------------------------
--- Наполнение интерфейса
+-- Building Movement Tab
 ---------------------------------------------------------
-CreateButton(PageMovement, "Bypass AntiCheat", 0, function()
-    ApplyNoHumanoidBypass()
-end)
-
-CreateToggle(PageMovement, "CFrame SpeedHack (WASD)", 45, function(state)
+CreateToggleCard(Content, "CFrame SpeedHack", "Smooth teleportation speed (up to 1000)", 0, Config.SpeedHackEnabled, function(state)
     Config.SpeedHackEnabled = state
 end)
 
-CreateInput(PageMovement, "WASD Speed (50-500):", Config.MovementSpeed, 90, function(val)
-    Config.MovementSpeed = val
+CreateSliderCard(Content, "Speed Value", 16, 1000, Config.SpeedValue, 65, function(value)
+    Config.SpeedValue = value
 end)
 
-CreateToggle(PageVisuals, "ESP Eggs", 0, function(state)
-    Config.EspEnabled = state
-end)
-
-CreateToggle(PageAutoFarm, "Auto Farm Eggs", 0, function(state)
-    Config.AutoFarmEnabled = state
-end)
-
-CreateInput(PageAutoFarm, "Farm Safe Speed (30-50):", Config.FarmSpeed, 45, function(val)
-    Config.FarmSpeed = val
-end)
-
-local eggBtn = CreateButton(PageAutoFarm, "Type: Biggest Egg", 90, function() end)
-eggBtn.MouseButton1Click:Connect(function()
-    if Config.SelectedEggType == "Biggest Egg" then
-        Config.SelectedEggType = "Parasite Egg"
-    elseif Config.SelectedEggType == "Parasite Egg" then
-        Config.SelectedEggType = "Secret Egg"
-    else
-        Config.SelectedEggType = "Biggest Egg"
+CreateToggleCard(Content, "AntiCheat Bypass", "Removes humanoid restrictions", 140, Config.BypassEnabled, function(state)
+    Config.BypassEnabled = state
+    if state then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChildOfClass("Humanoid") then
+            Camera.CameraSubject = char:FindFirstChild("HumanoidRootPart")
+            char:FindFirstChildOfClass("Humanoid"):Destroy()
+        end
     end
-    eggBtn.Text = "Type: " .. Config.SelectedEggType
-end)
-
-local zoneBtn = CreateButton(PageAutoFarm, "Zone: All Zones", 135, function() end)
-zoneBtn.MouseButton1Click:Connect(function()
-    if Config.SelectedZone == "All Zones" then
-        Config.SelectedZone = "Zone 1"
-    elseif Config.SelectedZone == "Zone 1" then
-        Config.SelectedZone = "Zone 2"
-    elseif Config.SelectedZone == "Zone 2" then
-        Config.SelectedZone = "Zone 3"
-    else
-        Config.SelectedZone = "All Zones"
-    end
-    zoneBtn.Text = "Zone: " .. Config.SelectedZone
 end)
