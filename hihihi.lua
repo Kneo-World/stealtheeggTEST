@@ -13,7 +13,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --------------------------------------------------------------------------------
--- 1. CONFIGURATION & STATE MANAGEMENT
+-- 1. CONFIGURATION & STATE MANAGEMENT1
 --------------------------------------------------------------------------------
 local Config = {
     SpeedHack = false,
@@ -105,12 +105,14 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 3. PROXIMITY PROMPT & INTERACTION HANDLER (GUARD BYPASS FIX)
+-- 3. PROXIMITY PROMPT & LATENCY-SYNC INTERACTION MODULE
 --------------------------------------------------------------------------------
 local InteractionModule = {}
 local interactionLock = false
 
 function InteractionModule.Init()
+    KneoLog("Инициализация модуля синхронизации латентности яиц...")
+
     ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player == LocalPlayer then
             State.LastTargetName = prompt.Parent and prompt.Parent.Name or "UnknownObject"
@@ -120,7 +122,7 @@ function InteractionModule.Init()
                 if State.SpeedButtonReference then
                     State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0)
                 end
-                KneoLog("Пауза для яйца (Guard Area): " .. State.LastTargetName)
+                KneoLog("[LATENCY SYNC] Спидхак выключен для безопасной отправки пакета яйца: " .. State.LastTargetName)
             end
         end
     end)
@@ -129,31 +131,31 @@ function InteractionModule.Init()
         if interactionLock then return end
         interactionLock = true
         
-        -- Сверхбыстрая пауза (100мс), чтобы античит стражей не успел выдать тревогу
-        task.wait(0.1) 
+        -- Увеличиваем время ожидания до 0.45 сек, чтобы таблица EggState успела закрыться на сервере
+        task.wait(0.45)
         
         if Config.AutoToggleOnInteract then
             Config.SpeedHack = true
             if State.SpeedButtonReference then
                 State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(90, 50, 220)
             end
-            KneoLog("Скорость восстановлена вне зоны охраны.")
+            KneoLog("[LATENCY SYNC] Латентность пройдена, спидхак возобновлен.")
         end
         
-        task.wait(0.2)
+        task.wait(0.3)
         interactionLock = false
     end
 
     ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
-        if player == LocalPlayer then
-            KneoLog("УСПЕХ (Triggered) -> Покупка/Сбор засчитан!")
+        if player == LocalPlayer` then
+            KneoLog("[LATENCY SYNC] Triggered подтвержден. Ждем синхронизацию сервера...")
             SafeRestoreSpeed()
         end
     end)
 
     ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
         if player == LocalPlayer then
-            KneoLog("ПРЕРВАНО -> Кнопка отпущена раньше времени.", "WARN")
+            KneoLog("[LATENCY SYNC] Кнопка отпущена раньше времени.", "WARN")
             SafeRestoreSpeed()
         end
     end)
@@ -172,7 +174,6 @@ function InteractionModule.Init()
 end
 
 InteractionModule.Init()
-
 --------------------------------------------------------------------------------
 -- 4. CFrame ENGINE (HIGH PERFORMANCE SPEEDHACK)
 --------------------------------------------------------------------------------
