@@ -12,13 +12,35 @@ local Camera = workspace.CurrentCamera
 local Config = {
     SpeedHack = false,
     SpeedValue = 1000,
-    DeleteHumanoid = false,
     DesyncBypass = true,
     AutoGrab = false
 }
 
 ---------------------------------------------------------
--- Bypass Метод 1: Удаление Humanoid
+-- Фикс Камеры и Перепривязка к HumanoidRootPart
+---------------------------------------------------------
+local function fixCamera()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local head = char:FindFirstChild("Head")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
+    if hum then
+        Camera.CameraSubject = hum
+    elseif root then
+        -- Если Humanoid удален, привязываем камеру напрямую к RootPart
+        Camera.CameraSubject = root
+    elseif head then
+        Camera.CameraSubject = head
+    end
+    
+    Camera.CameraType = Enum.CameraType.Custom
+end
+
+---------------------------------------------------------
+-- Bypass Метод 1: Удаление Humanoid + Фикс Камеры
 ---------------------------------------------------------
 local function deleteHumanoidBypass()
     local char = LocalPlayer.Character
@@ -35,10 +57,28 @@ local function deleteHumanoidBypass()
         end
         hum:Destroy()
     end
+
+    -- Восстанавливаем слежение камеры за игроком
+    task.wait(0.05)
+    fixCamera()
 end
 
+-- Следим за спавном и состоянием камеры каждый кадр
+RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        -- Если нет Humanoid, удерживаем камеру на RootPart
+        if not hum and root and Camera.CameraSubject ~= root then
+            Camera.CameraSubject = root
+        end
+    end
+end)
+
 ---------------------------------------------------------
--- CFrame Speed Engine + Desync Bypass
+-- CFrame Speed Engine
 ---------------------------------------------------------
 RunService.Heartbeat:Connect(function(delta)
     if not Config.SpeedHack then return end
@@ -51,7 +91,7 @@ RunService.Heartbeat:Connect(function(delta)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
 
-    -- Bypass Метод 2: Сброс состояний и WalkSpeed = 0, чтобы сервер не детектил бег
+    -- Bypass Метод 2: Desync (если Humanoid еще жив)
     if hum and Config.DesyncBypass then
         hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -81,7 +121,7 @@ RunService.Heartbeat:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- Fast Proximity Prompt Auto-Grab
+-- Auto-Grab Eggs / Prompts
 ---------------------------------------------------------
 task.spawn(function()
     while task.wait(0.05) do
@@ -123,7 +163,7 @@ ScreenGui.Parent = CoreGui
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 220, 0, 230)
+Main.Size = UDim2.new(0, 220, 0, 270)
 Main.Position = UDim2.new(0.05, 0, 0.3, 0)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Main.BorderSizePixel = 0
@@ -161,7 +201,7 @@ CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 -- Helper Button Creator
 local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 32)
+    btn.Size = UDim2.new(1, -20, 0, 30)
     btn.Position = UDim2.new(0, 10, 0, posY)
     btn.BackgroundColor3 = defaultState and Color3.fromRGB(80, 50, 200) or Color3.fromRGB(35, 35, 45)
     btn.Text = text
@@ -183,31 +223,65 @@ local function CreateButton(text, posY, defaultState, callback)
     return btn
 end
 
+-- Поле ввода скорости (TextBox)
+local SpeedBoxLabel = Instance.new("TextLabel")
+SpeedBoxLabel.Size = UDim2.new(0, 100, 0, 28)
+SpeedBoxLabel.Position = UDim2.new(0, 10, 0, 35)
+SpeedBoxLabel.Text = "Custom Speed:"
+SpeedBoxLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+SpeedBoxLabel.Font = Enum.Font.GothamMedium
+SpeedBoxLabel.TextSize = 11
+SpeedBoxLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedBoxLabel.BackgroundTransparency = 1
+SpeedBoxLabel.Parent = Main
+
+local SpeedInput = Instance.new("TextBox")
+SpeedInput.Size = UDim2.new(0, 90, 0, 28)
+SpeedInput.Position = UDim2.new(1, -100, 0, 35)
+SpeedInput.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+SpeedInput.Text = tostring(Config.SpeedValue)
+SpeedInput.TextColor3 = Color3.fromRGB(0, 255, 150)
+SpeedInput.Font = Enum.Font.GothamBold
+SpeedInput.TextSize = 12
+SpeedInput.Parent = Main
+
+local boxCorner = Instance.new("UICorner")
+boxCorner.CornerRadius = UDim.new(0, 6)
+boxCorner.Parent = SpeedInput
+
+SpeedInput.FocusLost:Connect(function()
+    local num = tonumber(SpeedInput.Text)
+    if num then
+        Config.SpeedValue = num
+    else
+        SpeedInput.Text = tostring(Config.SpeedValue)
+    end
+end)
+
 -- Кнопки управления
-CreateButton("SpeedHack (CFrame 1000)", 35, Config.SpeedHack, function(st)
+CreateButton("SpeedHack (CFrame)", 70, Config.SpeedHack, function(st)
     Config.SpeedHack = st
 end)
 
-CreateButton("Bypass: Desync Mode", 75, Config.DesyncBypass, function(st)
-    Config.DesyncBypass = st
-end)
-
-local delHumBtn = CreateButton("Bypass: Delete Humanoid", 115, false, function(st)
-    Config.DeleteHumanoid = st
+CreateButton("Bypass: Delete Humanoid", 110, false, function(st)
     if st then
         deleteHumanoidBypass()
     end
 end)
 
-CreateButton("Auto-Grab Eggs / Prompts", 155, Config.AutoGrab, function(st)
+CreateButton("Bypass: Desync Mode", 150, Config.DesyncBypass, function(st)
+    Config.DesyncBypass = st
+end)
+
+CreateButton("Auto-Grab Eggs / Prompts", 190, Config.AutoGrab, function(st)
     Config.AutoGrab = st
 end)
 
 -- Инфо-текст
 local Info = Instance.new("TextLabel")
 Info.Size = UDim2.new(1, -20, 0, 25)
-Info.Position = UDim2.new(0, 10, 0, 195)
-Info.Text = "Speed: 1000 | WASD to move"
+Info.Position = UDim2.new(0, 10, 0, 235)
+Info.Text = "Camera Fix Active | WASD to Move"
 Info.TextColor3 = Color3.fromRGB(120, 120, 140)
 Info.Font = Enum.Font.Gotham
 Info.TextSize = 10
