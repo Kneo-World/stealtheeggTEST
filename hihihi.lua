@@ -105,52 +105,59 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 3. PROXIMITY PROMPT & INTERACTION HANDLER (SMART BYPASS)
+-- 3. PROXIMITY PROMPT & INTERACTION HANDLER (SMART BYPASS FIX)
 --------------------------------------------------------------------------------
 local InteractionModule = {}
+local interactionLock = false
 
 function InteractionModule.Init()
     ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player == LocalPlayer then
             State.LastTargetName = prompt.Parent and prompt.Parent.Name or "UnknownObject"
-            KneoLog(string.format("Начато удержание промпта -> Объект: '%s' | HoldTime: %s", State.LastTargetName, tostring(prompt.HoldDuration)))
             
             if Config.AutoToggleOnInteract and Config.SpeedHack then
                 Config.SpeedHack = false
                 if State.SpeedButtonReference then
-                    State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0) -- Желтый статус (пауза)
+                    State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0)
                 end
-                KneoLog("Спидхак автоматически приостановлен на время удержания.")
+                KneoLog("Пауза спидхака: удерживаем промпт (" .. State.LastTargetName .. ")")
             end
         end
     end)
 
-    local function RestoreSpeedState()
-        if not Config.SpeedHack and Config.AutoToggleOnInteract then
-            task.wait(Config.SafeModeDelay)
+    local function SafeRestoreSpeed()
+        if interactionLock then return end
+        interactionLock = true
+        
+        -- Даем серверам игры время на обработку конца анимации яйца
+        task.wait(0.6) 
+        
+        if Config.AutoToggleOnInteract then
             Config.SpeedHack = true
             if State.SpeedButtonReference then
-                State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(90, 50, 220) -- Фиолетовый статус (активен)
+                State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(90, 50, 220)
             end
-            KneoLog("Спидхак возобновлен после взаимодействия.")
+            KneoLog("Спидхак безопасно возобновлен.")
         end
+        
+        task.wait(0.3)
+        interactionLock = false
     end
 
     ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
         if player == LocalPlayer then
-            KneoLog(string.format("УСПЕХ (Triggered) -> Объект: '%s'", State.LastTargetName))
-            RestoreSpeedState()
+            KneoLog("УСПЕХ (Triggered) для: " .. State.LastTargetName)
+            SafeRestoreSpeed()
         end
     end)
 
     ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
         if player == LocalPlayer then
-            KneoLog(string.format("ОТМЕНА / СБРОС (HoldEnded) -> Объект: '%s'", State.LastTargetName), "WARN")
-            RestoreSpeedState()
+            KneoLog("СБРОС (HoldEnded): игрок отпустил кнопку рано", "WARN")
+            SafeRestoreSpeed()
         end
     end)
     
-    -- Сканер всех промптов в зоне видимости
     task.spawn(function()
         while task.wait(5) do
             local count = 0
