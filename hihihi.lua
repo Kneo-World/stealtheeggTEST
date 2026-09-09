@@ -17,7 +17,7 @@ local Config = {
 }
 
 ---------------------------------------------------------
--- Фикс Камеры и Перепривязка к HumanoidRootPart
+-- Фикс Камеры67 и Перепривязка к HumanoidRootPart
 ---------------------------------------------------------
 local function fixCamera()
     local char = LocalPlayer.Character
