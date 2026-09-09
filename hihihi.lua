@@ -15,7 +15,7 @@ local Config = {
     SpeedValue = 500,
     DesyncBypass = false,
     AutoToggleOnInteract = true,
-    PauseDuration = 0.3 -- Микро-пауза (0.3 сек)
+    PauseDuration = 1.0 -- Пауза 1 секунда для гарантии сдачи яйца
 }
 
 ---------------------------------------------------------
@@ -112,7 +112,7 @@ RunService.Heartbeat:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- Быстрый Auto-Pause при взаимодействии
+-- Auto-Pause при взаимодействии (Сбалансированная задержка)
 ---------------------------------------------------------
 local isPausingForEgg = false
 local speedBtnRef = nil
@@ -125,10 +125,10 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
         Config.SpeedHack = false
         
         if speedBtnRef and wasSpeedOn then
-            speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтая подсветка во время паузы
+            speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтый цвет во время паузы
         end
 
-        task.wait(Config.PauseDuration) -- Микро-задержка 0.3 секунды
+        task.wait(Config.PauseDuration) -- Выжидаем 1 секунду
         
         Config.SpeedHack = wasSpeedOn
         if speedBtnRef and wasSpeedOn then
@@ -260,6 +260,6 @@ CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
     end
 end)
 
-CreateButton("Fast Auto-Pause (0.3s)", 190, Config.AutoToggleOnInteract, function(st)
+CreateButton("Auto-Pause Speed (1.0s)", 190, Config.AutoToggleOnInteract, function(st)
     Config.AutoToggleOnInteract = st
 end)
