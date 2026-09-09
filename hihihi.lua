@@ -14,59 +14,50 @@ local Config = {
     SpeedHack = false,
     SpeedValue = 500,
     DesyncBypass = false,
-    AutoToggleOnInteract = true,
-    PauseDuration = 0.5 -- Пауза 1 секунда для гарантии сдачи яйца676677
+    AutoToggleOnInteract = true
 }
 
----------------------------------------------------------
--- Фикс Камеры
----------------------------------------------------------
-local function fixCamera()
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-
-    if hum then
-        Camera.CameraSubject = hum
-    elseif root then
-        Camera.CameraSubject = root
-    end
-    Camera.CameraType = Enum.CameraType.Custom
-end
+local wasSpeedActiveBeforeHold = false
+local speedBtnRef = nil
 
 ---------------------------------------------------------
--- Bypass Метод: Delete Humanoid
+-- Умная пауза: выключаем НА ВРЕМЯ ЗАЖАТИЯ, включаем СРАЗУ ПОСЛЕ
 ---------------------------------------------------------
-local function deleteHumanoidBypass()
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("LocalScript") and v ~= script then
-                v.Disabled = true
-                v:Destroy()
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if player == LocalPlayer and Config.AutoToggleOnInteract then
+        if Config.SpeedHack then
+            wasSpeedActiveBeforeHold = true
+            Config.SpeedHack = false -- Мгновенно выключаем спидхак в начале зажатия
+            if speedBtnRef then
+                speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Желтая подсветка
             end
         end
-        hum:Destroy()
     end
+end)
 
-    task.wait(0.05)
-    fixCamera()
+local function restoreSpeed()
+    if wasSpeedActiveBeforeHold then
+        Config.SpeedHack = true -- Мгновенно включаем обратно
+        wasSpeedActiveBeforeHold = false
+        if speedBtnRef then
+            speedBtnRef.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+        end
+    end
 end
 
-RunService.RenderStepped:Connect(function()
-    local char = LocalPlayer.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        
-        if not hum and root and Camera.CameraSubject ~= root then
-            Camera.CameraSubject = root
-        end
+-- Если успешно зажал и взял/сдал яйцо
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+    if player == LocalPlayer then
+        task.wait(0.05) -- Микро-задержка (50мс), чтобы пакет подбора ушел на сервер
+        restoreSpeed()
+    end
+end)
+
+-- Если отпустил клавишу раньше времени (не докутил 1 сек)
+ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
+    if player == LocalPlayer then
+        task.wait(0.05)
+        restoreSpeed()
     end
 end)
 
@@ -108,34 +99,6 @@ RunService.Heartbeat:Connect(function(delta)
         moveVector = moveVector.Unit
         root.CFrame = root.CFrame + (moveVector * (Config.SpeedValue * delta))
         root.AssemblyLinearVelocity = Vector3.zero
-    end
-end)
-
----------------------------------------------------------
--- Auto-Pause при взаимодействии (Сбалансированная задержка)
----------------------------------------------------------
-local isPausingForEgg = false
-local speedBtnRef = nil
-
-ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
-    if player == LocalPlayer and Config.AutoToggleOnInteract and not isPausingForEgg then
-        isPausingForEgg = true
-        
-        local wasSpeedOn = Config.SpeedHack
-        Config.SpeedHack = false
-        
-        if speedBtnRef and wasSpeedOn then
-            speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Жёлтый цвет во время паузы
-        end
-
-        task.wait(Config.PauseDuration) -- Выжидаем 1 секунду
-        
-        Config.SpeedHack = wasSpeedOn
-        if speedBtnRef and wasSpeedOn then
-            speedBtnRef.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
-        end
-        
-        isPausingForEgg = false
     end
 end)
 
@@ -254,12 +217,6 @@ CreateButton("Bypass: Desync Mode", 110, Config.DesyncBypass, function(st)
     Config.DesyncBypass = st
 end)
 
-CreateButton("Bypass: Delete Humanoid", 150, false, function(st)
-    if st then
-        deleteHumanoidBypass()
-    end
-end)
-
-CreateButton("Auto-Pause Speed (1.0s)", 190, Config.AutoToggleOnInteract, function(st)
+CreateButton("Auto Hold-Pause (Smart)", 190, Config.AutoToggleOnInteract, function(st)
     Config.AutoToggleOnInteract = st
 end)
