@@ -73,20 +73,18 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- Жесткий фикс для яйца: выключаем скорость ТОЛЬКО в момент получения
+-- Фикс для яйца: пауза в момент получения
 ---------------------------------------------------------
 ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
     if player == LocalPlayer and Config.AutoToggleOnInteract and not isWaitingForEgg then
         isWaitingForEgg = true
         local wasSpeedOn = Config.SpeedHack
         
-        -- Вырубаем спидхак на момент выдачи яйца сервером
         Config.SpeedHack = false
         if speedBtnRef and wasSpeedOn then
             speedBtnRef.BackgroundColor3 = Color3.fromRGB(200, 150, 0)
         end
 
-        -- Ждем 0.4 сек, пока сервер точно зафиксирует честное получение
         task.wait(0.4)
 
         Config.SpeedHack = wasSpeedOn
@@ -184,7 +182,7 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.BackgroundTransparency = 1
 CloseBtn.TextSize = 12
 CloseBtn.Parent = Main
-CloseBtn.MouseButton1Click:Connect(function$() ScreenGui:Destroy() end)
+CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 
 local function CreateButton(text, posY, defaultState, callback)
     local btn = Instance.new("TextButton")
