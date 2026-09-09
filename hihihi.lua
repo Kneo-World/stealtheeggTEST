@@ -12,7 +12,7 @@ local Camera = workspace.CurrentCamera
 local Config = {
     BypassEnabled = false,
     SpeedHackEnabled = false,
-    MovementSpeed = 50, -- Начальная скорость (можно менять через GUI)
+    MovementSpeed = 50, -- Начальная скорость (можно менять через GUI) 56565
     
     EspEnabled = false,
     
