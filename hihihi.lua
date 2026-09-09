@@ -13,11 +13,12 @@ local Config = {
     SpeedHack = false,
     SpeedValue = 1000,
     DesyncBypass = true,
-    AutoGrab = false
+    AutoGrab = false,
+    DeliveryBypass = true -- Новый фикс сдачи яиц
 }
 
 ---------------------------------------------------------
--- Фикс Камеры67 и Перепривязка к HumanoidRootPart
+-- Фикс Камеры и Перепривязка к HumanoidRootPart
 ---------------------------------------------------------
 local function fixCamera()
     local char = LocalPlayer.Character
@@ -30,7 +31,6 @@ local function fixCamera()
     if hum then
         Camera.CameraSubject = hum
     elseif root then
-        -- Если Humanoid удален, привязываем камеру напрямую к RootPart
         Camera.CameraSubject = root
     elseif head then
         Camera.CameraSubject = head
@@ -48,7 +48,6 @@ local function deleteHumanoidBypass()
     
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        -- Удаляем скрипты-античиты из персонажа
         for _, v in pairs(char:GetDescendants()) do
             if v:IsA("LocalScript") and v ~= script then
                 v.Disabled = true
@@ -58,19 +57,16 @@ local function deleteHumanoidBypass()
         hum:Destroy()
     end
 
-    -- Восстанавливаем слежение камеры за игроком
     task.wait(0.05)
     fixCamera()
 end
 
--- Следим за спавном и состоянием камеры каждый кадр
 RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if char then
         local root = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
-        -- Если нет Humanoid, удерживаем камеру на RootPart
         if not hum and root and Camera.CameraSubject ~= root then
             Camera.CameraSubject = root
         end
@@ -91,7 +87,6 @@ RunService.Heartbeat:Connect(function(delta)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
 
-    -- Bypass Метод 2: Desync (если Humanoid еще жив)
     if hum and Config.DesyncBypass then
         hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -99,7 +94,6 @@ RunService.Heartbeat:Connect(function(delta)
         hum.WalkSpeed = 0
     end
 
-    -- Расчет движения
     local moveVector = Vector3.zero
     local camCF = Camera.CFrame
     local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
@@ -121,8 +115,48 @@ RunService.Heartbeat:Connect(function(delta)
 end)
 
 ---------------------------------------------------------
--- Auto-Grab Eggs / Prompts
+-- Smart Egg Delivery Bypass (Забор и сдача яйца без возврата)
 ---------------------------------------------------------
+local isDelivering = false
+
+local function processPrompt(prompt)
+    if isDelivering then return end
+    isDelivering = true
+
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        isDelivering = false
+        return 
+    end
+    
+    local root = char.HumanoidRootPart
+    local parentPart = prompt.Parent
+
+    if parentPart and parentPart:IsA("BasePart") then
+        -- Если активен Delivery Bypass, делаем микро-паузу фиксации координат перед взаимодействием
+        if Config.DeliveryBypass then
+            -- Сбрасываем инерцию
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            task.wait(0.08) -- Пауза для синхронизации с сервером
+        end
+
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        else
+            prompt:InputHoldBegin()
+            task.wait(0.03)
+            prompt:InputHoldEnd()
+        end
+
+        if Config.DeliveryBypass then
+            task.wait(0.05)
+        end
+    end
+
+    isDelivering = false
+end
+
 task.spawn(function()
     while task.wait(0.05) do
         if Config.AutoGrab then
@@ -133,14 +167,8 @@ task.spawn(function()
                     if prompt:IsA("ProximityPrompt") and prompt.Enabled then
                         local part = prompt.Parent
                         if part and part:IsA("BasePart") then
-                            if (part.Position - rootPos).Magnitude <= 35 then
-                                if fireproximityprompt then
-                                    fireproximityprompt(prompt)
-                                else
-                                    prompt:InputHoldBegin()
-                                    task.wait(0.02)
-                                    prompt:InputHoldEnd()
-                                end
+                            if (part.Position - rootPos).Magnitude <= 30 then
+                                processPrompt(prompt)
                             end
                         end
                     end
@@ -163,7 +191,7 @@ ScreenGui.Parent = CoreGui
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 220, 0, 270)
+Main.Size = UDim2.new(0, 220, 0, 310)
 Main.Position = UDim2.new(0.05, 0, 0.3, 0)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Main.BorderSizePixel = 0
@@ -273,15 +301,19 @@ CreateButton("Bypass: Desync Mode", 150, Config.DesyncBypass, function(st)
     Config.DesyncBypass = st
 end)
 
-CreateButton("Auto-Grab Eggs / Prompts", 190, Config.AutoGrab, function(st)
+CreateButton("Bypass: Egg Delivery Fix", 190, Config.DeliveryBypass, function(st)
+    Config.DeliveryBypass = st
+end)
+
+CreateButton("Auto-Grab Eggs / Prompts", 230, Config.AutoGrab, function(st)
     Config.AutoGrab = st
 end)
 
 -- Инфо-текст
 local Info = Instance.new("TextLabel")
 Info.Size = UDim2.new(1, -20, 0, 25)
-Info.Position = UDim2.new(0, 10, 0, 235)
-Info.Text = "Camera Fix Active | WASD to Move"
+Info.Position = UDim2.new(0, 10, 0, 275)
+Info.Text = "Camera Fix Active | Egg Fix ON"
 Info.TextColor3 = Color3.fromRGB(120, 120, 140)
 Info.Font = Enum.Font.Gotham
 Info.TextSize = 10
