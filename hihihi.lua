@@ -126,7 +126,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
         Config.SpeedHack = false
         
         -- Ждём 1.5 секунды, пока сервер обработает сдачу/подбор
-        task.wait(1.5)
+        task.wait(0.3)
         
         -- Возвращаем спидхак обратно
         Config.SpeedHack = wasSpeedOn
