@@ -1,19 +1,18 @@
 --------------------------------------------------------------------------------
--- [KNEO MEGA UTILITY SUITE v3.5] - Advanced Roblox Speed & Interaction Tool
+-- [KNEO MEGA UTILITY SUITE v3.6] - Advanced Roblox Speed & Interaction Tool
 --------------------------------------------------------------------------------
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --------------------------------------------------------------------------------
--- 1. CONFIGURATION & STATE MANAGEMENT1
+-- 1. CONFIGURATION & STATE MANAGEMENT2
 --------------------------------------------------------------------------------
 local Config = {
     SpeedHack = false,
@@ -21,7 +20,7 @@ local Config = {
     DesyncBypass = false,
     AutoToggleOnInteract = true,
     LoggingEnabled = true,
-    SafeModeDelay = 0.15
+    SafeModeDelay = 0.45
 }
 
 local State = {
@@ -43,7 +42,7 @@ local function KneoLog(message, messageType)
     end
 end
 
-KneoLog("Инициализация тяжелого ядра скрипта...")
+KneoLog("Инициализация тяжелого ядра скрипта v3.6...")
 
 --------------------------------------------------------------------------------
 -- 2. CAMERA & CHARACTER BYPASS MODULES
@@ -63,15 +62,11 @@ function CharacterModule.FixCamera()
         Camera.CameraSubject = root
     end
     Camera.CameraType = Enum.CameraType.Custom
-    KneoLog("Камера успешно восстановлена.")
 end
 
 function CharacterModule.DeleteHumanoidBypass()
     local char = LocalPlayer.Character
-    if not char then 
-        KneoLog("Персонаж не найден для Humanoid Bypass!", "WARN")
-        return 
-    end
+    if not char then return end
     
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
@@ -83,15 +78,12 @@ function CharacterModule.DeleteHumanoidBypass()
         end
         hum:Destroy()
         KneoLog("Humanoid успешно уничтожен (Bypass активирован).", "WARN")
-    else
-        KneoLog("Humanoid уже отсутствует.", "WARN")
     end
 
     task.wait(0.05)
     CharacterModule.FixCamera()
 end
 
--- Слежение за целостностью камеры
 RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if char then
@@ -111,8 +103,6 @@ local InteractionModule = {}
 local interactionLock = false
 
 function InteractionModule.Init()
-    KneoLog("Инициализация модуля синхронизации латентности яиц...")
-
     ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player == LocalPlayer then
             State.LastTargetName = prompt.Parent and prompt.Parent.Name or "UnknownObject"
@@ -122,7 +112,7 @@ function InteractionModule.Init()
                 if State.SpeedButtonReference then
                     State.SpeedButtonReference.BackgroundColor3 = Color3.fromRGB(220, 160, 0)
                 end
-                KneoLog("[LATENCY SYNC] Спидхак выключен для безопасной отправки пакета яйца: " .. State.LastTargetName)
+                KneoLog("[LATENCY SYNC] Спидхак выключен для яйца: " .. State.LastTargetName)
             end
         end
     end)
@@ -131,8 +121,7 @@ function InteractionModule.Init()
         if interactionLock then return end
         interactionLock = true
         
-        -- Увеличиваем время ожидания до 0.45 сек, чтобы таблица EggState успела закрыться на сервере
-        task.wait(0.45)
+        task.wait(Config.SafeModeDelay)
         
         if Config.AutoToggleOnInteract then
             Config.SpeedHack = true
@@ -147,7 +136,7 @@ function InteractionModule.Init()
     end
 
     ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
-        if player == LocalPlayer` then
+        if player == LocalPlayer then
             KneoLog("[LATENCY SYNC] Triggered подтвержден. Ждем синхронизацию сервера...")
             SafeRestoreSpeed()
         end
@@ -174,6 +163,7 @@ function InteractionModule.Init()
 end
 
 InteractionModule.Init()
+
 --------------------------------------------------------------------------------
 -- 4. CFrame ENGINE (HIGH PERFORMANCE SPEEDHACK)
 --------------------------------------------------------------------------------
@@ -249,7 +239,6 @@ function UIModule.Build()
     UIStroke.Thickness = 1.5
     UIStroke.Parent = MainFrame
 
-    -- Заголовок
     local TitleLabel = Instance.new("TextLabel")
     TitleLabel.Size = UDim2.new(1, -35, 0, 35)
     TitleLabel.Position = UDim2.new(0, 12, 0, 0)
@@ -261,7 +250,6 @@ function UIModule.Build()
     TitleLabel.BackgroundTransparency = 1
     TitleLabel.Parent = MainFrame
 
-    -- Кнопка закрытия
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 28, 0, 28)
     CloseBtn.Position = UDim2.new(1, -32, 0, 4)
@@ -273,14 +261,12 @@ function UIModule.Build()
     CloseBtn.Parent = MainFrame
     CloseBtn.MouseButton1Click:Connect(function()
         ScreenGui:Destroy()
-        KneoLog("Интерфейс уничтожен пользователем.")
     end)
 
-    -- Информационная строка статуса
     local StatusLabel = Instance.new("TextLabel")
     StatusLabel.Size = UDim2.new(1, -24, 0, 20)
     StatusLabel.Position = UDim2.new(0, 12, 0, 32)
-    StatusLabel.Text = "Status: Operational | Target: None"
+    StatusLabel.Text = "Status: Operational"
     StatusLabel.TextColor3 = Color3.fromRGB(100, 220, 120)
     StatusLabel.Font = Enum.Font.Code
     StatusLabel.TextSize = 10
@@ -288,7 +274,6 @@ function UIModule.Build()
     StatusLabel.BackgroundTransparency = 1
     StatusLabel.Parent = MainFrame
 
-    -- Обновление статуса в реальном времени
     task.spawn(function()
         while ScreenGui.Parent do
             StatusLabel.Text = string.format("Prompts: %d | Target: %s", State.ActivePromptsCount, State.LastTargetName)
@@ -296,7 +281,6 @@ function UIModule.Build()
         end
     end)
 
-    -- Поле ввода скорости
     local SpeedBoxLabel = Instance.new("TextLabel")
     SpeedBoxLabel.Size = UDim2.new(0, 110, 0, 30)
     SpeedBoxLabel.Position = UDim2.new(0, 12, 0, 60)
@@ -326,13 +310,11 @@ function UIModule.Build()
         local num = tonumber(SpeedInput.Text)
         if num then
             Config.SpeedValue = num
-            KneoLog("Установлена новая скорость: " .. tostring(num))
         else
             SpeedInput.Text = tostring(Config.SpeedValue)
         end
     end)
 
-    -- Функция генерации кнопок панели
     local function CreateMenuButton(text, posY, defaultState, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1, -24, 0, 32)
@@ -357,7 +339,6 @@ function UIModule.Build()
         return btn
     end
 
-    -- Добавление функциональных кнопок
     State.SpeedButtonReference = CreateMenuButton("SpeedHack (CFrame Engine)", 100, Config.SpeedHack, function(st)
         Config.SpeedHack = st
     end)
@@ -366,7 +347,6 @@ function UIModule.Build()
         Config.DesyncBypass = st
     end)
 
-    -- Кнопка с мгновенным выполнением (без переключения состояния)
     local function CreateActionItem(text, posY, actionCallback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1, -24, 0, 32)
@@ -392,7 +372,7 @@ function UIModule.Build()
         CharacterModule.DeleteHumanoidBypass()
     end)
 
-    CreateMenuButton("Smart Auto-Pause (Interaction)", 220, Config.AutoToggleOnInstantly or Config.AutoToggleOnInteract, function(st)
+    CreateMenuButton("Smart Auto-Pause (Interaction)", 220, Config.AutoToggleOnInteract, function(st)
         Config.AutoToggleOnInteract = st
     end)
 
@@ -400,7 +380,6 @@ function UIModule.Build()
         Config.LoggingEnabled = st
     end)
     
-    -- Декоративный футер
     local FooterLabel = Instance.new("TextLabel")
     FooterLabel.Size = UDim2.new(1, -24, 0, 20)
     FooterLabel.Position = UDim2.new(0, 12, 1, -24)
@@ -414,4 +393,4 @@ function UIModule.Build()
 end
 
 UIModule.Build()
-KneoLog("Мега-модуль успешно развернут. Ошибки яиц отслеживаются в реальном времени через F9!")
+KneoLog("Мега-модуль v3.6 успешно развернут без ошибок!")
